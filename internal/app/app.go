@@ -143,6 +143,13 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		}
 	}()
 
+	// Resolve the weather source (and any interactive IP prompt) BEFORE
+	// opening the terminal: the prompt must run in cooked mode, where
+	// Enter yields "\n" and Ctrl+C is a real SIGINT. In raw mode Enter
+	// yields "\r" and the prompt would hang forever, unkillable.
+	fetcher, offlineAtStart := resolveFetcher(ctx, cfg)
+	poller := weather.NewPoller(fetcher, cfg.Interval)
+
 	t, err := term.Open()
 	if err != nil {
 		return fmt.Errorf("open terminal: %w", err)
@@ -156,9 +163,6 @@ func Run(ctx context.Context, cfg Config) (err error) {
 	if err != nil {
 		return fmt.Errorf("terminal size: %w", err)
 	}
-
-	fetcher, offlineAtStart := resolveFetcher(cfg)
-	poller := weather.NewPoller(fetcher, cfg.Interval)
 
 	stars := cfg.Stars
 	switch stars {
@@ -325,7 +329,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 // configured city gives keyless Open-Meteo city weather; failing that it
 // asks whether to use the keyless IP-location source. It returns the
 // fetcher and whether the app should start in offline (picker) mode.
-func resolveFetcher(cfg Config) (weather.Fetcher, bool) {
+func resolveFetcher(ctx context.Context, cfg Config) (weather.Fetcher, bool) {
 	if cfg.APIKey != "" {
 		return weather.NewClient(cfg.APIKey, cfg.City), false
 	}
@@ -333,7 +337,7 @@ func resolveFetcher(cfg Config) (weather.Fetcher, bool) {
 		fmt.Fprintln(os.Stderr, "awapp: using keyless city weather for "+cfg.City+" (no API key)")
 		return weather.NewCityClient(cfg.City), false
 	}
-	if cfg.UseIP || askUseIP() {
+	if cfg.UseIP || askUseIP(ctx) {
 		fmt.Fprintln(os.Stderr, "awapp: using IP-location weather (no API key)")
 		return weather.NewIPClient(), false
 	}
@@ -341,16 +345,26 @@ func resolveFetcher(cfg Config) (weather.Fetcher, bool) {
 }
 
 // askUseIP prompts the user to opt into keyless IP-based weather. When
-// stdin isn't a terminal it can't ask, so it defaults to yes (the least
-// effort, least invasive choice).
-func askUseIP() bool {
+// stdin isn't a terminal it can't ask, so it defaults to yes. The read
+// runs off the main goroutine so Ctrl+C (which cancels ctx) always
+// returns, even if the line never arrives.
+func askUseIP(ctx context.Context) bool {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return true
 	}
 	fmt.Fprint(os.Stderr, "\nNo API key found. Use weather from your IP location instead? [Y/n] ")
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	line = strings.TrimSpace(strings.ToLower(line))
-	return line == "" || line == "y" || line == "yes"
+	lineCh := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		lineCh <- line
+	}()
+	select {
+	case line := <-lineCh:
+		line = strings.TrimSpace(strings.ToLower(line))
+		return line == "" || line == "y" || line == "yes"
+	case <-ctx.Done():
+		return true // shutting down (Ctrl+C): bail out
+	}
 }
 
 // moonOptionsFrom converts the CLI config into anim.MoonOptions.
