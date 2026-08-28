@@ -13,6 +13,7 @@ type Mode int
 const (
 	ModeRain Mode = iota
 	ModeSnow
+	ModeSleet // rain + snow mixed (freezing rain)
 )
 
 type drop struct {
@@ -109,16 +110,25 @@ func (p *Precip) Resize(w, h int) {
 }
 
 func (p *Precip) newDrop(randomY bool) drop {
+	mode := p.Mode
+	if mode == ModeSleet {
+		// Sleet: roughly half the drops fall as rain, half as snow.
+		if p.rng.Float64() < 0.5 {
+			mode = ModeRain
+		} else {
+			mode = ModeSnow
+		}
+	}
 	d := drop{
 		x:    p.rng.Float64() * float64(p.w),
-		mode: p.Mode,
+		mode: mode,
 	}
 	if randomY {
 		d.y = p.rng.Float64() * float64(p.h)
 	} else {
 		d.y = 0
 	}
-	if p.Mode == ModeSnow {
+	if mode == ModeSnow {
 		d.speed = 0.15 + p.rng.Float64()*0.25
 		d.drift = (p.rng.Float64()-0.5)*0.3 + p.wind*0.03*windEastward(p.windDir)
 		glyphs := []rune{'*', '.', '\'', '❄'}

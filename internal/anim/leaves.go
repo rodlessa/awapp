@@ -202,20 +202,30 @@ const (
 	scaleSmall                   // third-size background (~70%)
 )
 
-// leafSizes holds the same sprite at three depths.
+// leafSizes holds a sprite at two sizes (large foreground, medium
+// mid-ground). Far-background leaves use clean hand-drawn tiny sprites
+// instead of downscaled braille, which read as noise blobs.
 type leafSizes struct {
-	large, medium, small []string
+	large, medium []string
 }
 
 func (s leafSizes) at(sc leafScale) []string {
-	switch sc {
-	case scaleMedium:
+	if sc == scaleMedium {
 		return s.medium
-	case scaleSmall:
-		return s.small
-	default:
-		return s.large
 	}
+	return s.large
+}
+
+// leafTinySprites: small clean leaves for the far background. Simple
+// comma/apostrophe shapes read as tiny leaves, unlike the downscaled
+// braille that looked like random snow blobs.
+var leafTinySprites = [][]string{
+	{"'"},
+	{","},
+	{"*"},
+	{"·"},
+	{"'_"},
+	{",_"},
 }
 
 // brailleDots counts the lit dots in a braille cell (0 for a blank,
@@ -276,31 +286,15 @@ func scaleSprite(art []string, k int) []string {
 	return out
 }
 
-// Sized variants of each sprite (large/medium/small) for depth.
+// Sized variants of each sprite (large + medium) for depth.
 var (
-	leafSummerSizes = leafSizes{large: leafSummer, medium: scaleSprite(leafSummer, 2), small: scaleSprite(leafSummer, 3)}
+	leafSummerSizes = leafSizes{large: leafSummer, medium: scaleSprite(leafSummer, 2)}
 	leafFallSizes   = []leafSizes{
-		{large: leafFall[0], medium: scaleSprite(leafFall[0], 2), small: scaleSprite(leafFall[0], 3)},
-		{large: leafFall[1], medium: scaleSprite(leafFall[1], 2), small: scaleSprite(leafFall[1], 3)},
-		{large: leafFall[2], medium: scaleSprite(leafFall[2], 2), small: scaleSprite(leafFall[2], 3)},
+		{large: leafFall[0], medium: scaleSprite(leafFall[0], 2)},
+		{large: leafFall[1], medium: scaleSprite(leafFall[1], 2)},
+		{large: leafFall[2], medium: scaleSprite(leafFall[2], 2)},
 	}
 )
-
-// flakeSizes makes a leafSizes where every depth is the same single-cell
-// snowflake glyph (snowflakes are all small).
-func flakeSizes(g rune) leafSizes {
-	s := []string{string(g)}
-	return leafSizes{large: s, medium: s, small: s}
-}
-
-// winterFlakeSizes: the ambient winter snowflake sprites (the 'l' toggle
-// hides them like the leaves).
-var winterFlakeSizes = []leafSizes{
-	flakeSizes('❄'),
-	flakeSizes('*'),
-	flakeSizes('.'),
-	flakeSizes('·'),
-}
 
 // leaf is a single drifting leaf on screen.
 type leaf struct {
@@ -366,15 +360,8 @@ func (l *Leaves) countFor() int {
 		return 10 // big detailed sprites — most are downscaled for depth
 	case SeasonSummer, SeasonSpring:
 		return 18
-	default: // winter — ambient snowflakes instead of leaves
-		n := l.w / 3
-		if n < 10 {
-			n = 10
-		}
-		if n > 60 {
-			n = 60
-		}
-		return n
+	default:
+		return 0 // winter — bare trees (snow comes from the weather, not the season)
 	}
 }
 
@@ -382,8 +369,6 @@ func (l *Leaves) arts() []leafSizes {
 	switch l.Season {
 	case SeasonFall:
 		return leafFallSizes
-	case SeasonWinter:
-		return winterFlakeSizes
 	default: // spring & summer use the same green leaf
 		return []leafSizes{leafSummerSizes}
 	}
@@ -409,8 +394,6 @@ func (l *Leaves) leafShade(sc leafScale) uint8 {
 	switch l.Season {
 	case SeasonFall:
 		base = []uint8{178, 208, 214, 202}[l.rng.Intn(4)] // yellow → orange → red
-	case SeasonWinter:
-		base = []uint8{255, 253, 251, 189}[l.rng.Intn(4)] // whites + icy blue
 	default:
 		base = []uint8{34, 40, 71, 114}[l.rng.Intn(4)] // greens
 	}
@@ -427,16 +410,15 @@ func (l *Leaves) leafShade(sc leafScale) uint8 {
 func (l *Leaves) newLeaf(randomY bool, sizes leafSizes) leaf {
 	sc := l.pickScale()
 	art := sizes.at(sc)
-	speed, swaySpd := 0.12+l.rng.Float64()*0.2, 0.4+l.rng.Float64()*0.5
-	if l.Season == SeasonWinter {
-		speed, swaySpd = 0.04+l.rng.Float64()*0.10, 0.3+l.rng.Float64()*0.4 // flakes fall slow & flutter gently
+	if sc == scaleSmall {
+		art = leafTinySprites[l.rng.Intn(len(leafTinySprites))]
 	}
 	lf := leaf{
 		x:       l.rng.Float64() * float64(l.w),
-		speed:   speed,
+		speed:   0.12 + l.rng.Float64()*0.2,
 		wind:    windEastward(l.windDir) * (0.2 + math.Abs(l.wind)*0.05),
 		sway:    l.rng.Float64() * math.Pi * 2,
-		swaySpd: swaySpd,
+		swaySpd: 0.4 + l.rng.Float64()*0.5,
 		art:     art,
 		scale:   sc,
 		shade:   l.leafShade(sc),

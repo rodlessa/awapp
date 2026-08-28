@@ -138,6 +138,27 @@ Env var fallbacks: `OPENWEATHERMAP_API_KEY` / `OPENWEATHER_API_KEY`,
 `OPENWEATHERMAP_CITY` / `OPENWEATHER_CITY`,
 `LIGHT_POLLUTION_MAP_API_KEY` (for `-light-key`).
 
+## Releases
+
+Pushing to `main` (or a `v*` tag) triggers a GitHub Actions workflow
+(`.github/workflows/release.yml`) that builds **Linux** and **Windows**
+binaries, runs the test suite, and publishes them as a GitHub Release:
+
+- **push to `main`** → a pre-release named `main-<short-sha>` with the
+  latest builds.
+- **tag `v1.2.3`** → a proper versioned release `v1.2.3`.
+
+Each release contains `weatherterm-linux` (+ `.tar.gz`) and
+`weatherterm-windows.exe`. To release a new version, just push a tag:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+Windows is a full console build (raw mode via the Win32 console API,
+ANSI/VT rendering) and runs in Windows Terminal or any VT-capable
+console.
+
 ## Keybindings
 
 | Key     | Action                                                          |
@@ -189,8 +210,8 @@ drift across the scene, pushed sideways by the **wind direction**:
 
 - **Spring / Summer** — fresh green leaves.
 - **Fall** — big dry curling leaves (yellows, oranges, reds).
-- **Winter** — bare trees, with gentle ambient **snowflakes** drifting down
-  (and heavier snow when it's actually snowing).
+- **Winter** — bare trees (no leaves). Snow only falls when the weather is
+  actually snowy; near-freezing rain shows as **sleet** (rain + snow mixed).
 
 Force a season for testing with `-season fall` (or the `season` config
 key). The leaves lean left/right with the wind, like the rain. Only about

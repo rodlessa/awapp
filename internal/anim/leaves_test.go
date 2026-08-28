@@ -64,28 +64,19 @@ func TestLeavesDrawSeason(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			l.Tick()
 		}
+		if s == SeasonWinter {
+			if len(l.leaves) != 0 {
+				t.Error("winter is bare — snow comes from the weather, not the season")
+			}
+			continue
+		}
 		if len(l.leaves) == 0 {
-			t.Fatalf("%v should have drifting particles", s)
+			t.Fatalf("%v should have drifting leaves", s)
 		}
 		buf := render.NewBuffer(80, 24)
 		l.Draw(buf)
 		if countVisible(buf.Text()) == 0 {
-			t.Errorf("%v should render something", s)
-		}
-	}
-}
-
-// Winter swaps the leaves for single-cell snowflakes.
-func TestWinterProducesFlakes(t *testing.T) {
-	l := NewLeaves()
-	l.SetSeason(SeasonWinter)
-	l.Resize(100, 30)
-	if len(l.leaves) == 0 {
-		t.Fatal("winter should have drifting snowflakes")
-	}
-	for _, lf := range l.leaves {
-		if len(lf.art) != 1 || len([]rune(lf.art[0])) != 1 {
-			t.Errorf("winter flake should be a single cell, got %v", lf.art)
+			t.Errorf("%v leaves should render something", s)
 		}
 	}
 }

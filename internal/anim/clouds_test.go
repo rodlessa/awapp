@@ -100,6 +100,7 @@ func TestDrawPrecipAllModes(t *testing.T) {
 		{ModeRain, true, false},
 		{ModeRain, true, true},
 		{ModeSnow, true, false},
+		{ModeSleet, false, false},
 	}
 	for _, m := range modes {
 		p := NewPrecip(m.mode, m.heavy, m.thunder, 8.0, 270)

@@ -94,3 +94,20 @@ func TestCloudsToggleIsSticky(t *testing.T) {
 		t.Error("after the user toggled, applyClouds should re-apply their choice (shown)")
 	}
 }
+
+// Rain at near-freezing temps renders as sleet (rain + snow together);
+// warm rain and temperature-less manual picks stay plain rain.
+func TestRainSleetByTemperature(t *testing.T) {
+	cold := weather.Report{Condition: weather.Rain, Desc: "rain", TempKelvin: 274.15} // ~1°C
+	if an := animatorFor(cold, anim.MoonOptions{}, true); an.(*anim.Precip).Mode != anim.ModeSleet {
+		t.Error("freezing rain should render as sleet (rain + snow)")
+	}
+	warm := weather.Report{Condition: weather.Rain, Desc: "rain", TempKelvin: 290.0} // ~17°C
+	if an := animatorFor(warm, anim.MoonOptions{}, true); an.(*anim.Precip).Mode != anim.ModeRain {
+		t.Error("warm rain should render as plain rain")
+	}
+	manual := weather.Report{Condition: weather.Rain, Desc: "rain (manual)"}
+	if an := animatorFor(manual, anim.MoonOptions{}, true); an.(*anim.Precip).Mode != anim.ModeRain {
+		t.Error("manual rain with no temperature should render as plain rain")
+	}
+}

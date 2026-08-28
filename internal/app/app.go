@@ -799,7 +799,11 @@ func animatorFor(r weather.Report, moonOpts anim.MoonOptions, cloudsOn bool) ani
 		c.SetClouds(cloudsOn)
 		return c
 	case weather.Rain:
-		pr := anim.NewPrecip(anim.ModeRain, heavy, false, r.WindMS, r.WindDir)
+		mode := anim.ModeRain
+		if r.TempKelvin > 0 && r.TempC() <= 2 {
+			mode = anim.ModeSleet // near-freezing rain falls as rain + snow mixed
+		}
+		pr := anim.NewPrecip(mode, heavy, false, r.WindMS, r.WindDir)
 		pr.SetClouds(false) // rain starts with its cloud deck hidden ('o' brings it back)
 		return pr
 	case weather.Thunderstorm:
