@@ -23,7 +23,7 @@ sha256sums=('c2affa84ed5b86762a6dcf67eedf0b32baaaf416a8b3fe508295f5c905699842')
 
 build() {
   cd "$pkgname-$pkgver"
-  go build -trimpath -ldflags='-s -w' -o awapp .
+  go build -trimpath -ldflags="-s -w -X main.version=v$pkgver" -o awapp .
 }
 
 check() {

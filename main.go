@@ -24,6 +24,13 @@ import (
 	"awapp/internal/app"
 )
 
+// version is stamped at build time via
+//
+//	-ldflags "-X main.version=<tag>"
+//
+// and defaults to "dev" for local builds. `awapp -version` prints it.
+var version = "dev"
+
 // fileConfig mirrors the JSON config file. Pointer fields distinguish
 // "not set" from an explicit false/zero value.
 type fileConfig struct {
@@ -75,8 +82,23 @@ func loadFileConfig(path string) fileConfig {
 	if err != nil {
 		return fc // missing file is fine; we fall back to defaults
 	}
-	_ = json.Unmarshal(data, &fc)
+	if err := json.Unmarshal(data, &fc); err != nil {
+		fmt.Fprintln(os.Stderr, "awapp: bad config file "+path+":", err)
+	}
 	return fc
+}
+
+// configFileTooOpen reports whether the config file is readable by other
+// users — it may hold a plaintext API key, so the app warns about it.
+func configFileTooOpen(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().Perm()&0o077 != 0
 }
 
 func strOr(p *string) string {
@@ -164,12 +186,21 @@ func main() {
 	size := flag.Float64("size", 0, "Sun/Moon diameter as %% of terminal width (default 15; adjust with '+'/'-')")
 	season := flag.String("season", "", "leaf season: auto, spring, summer, fall, winter (default: auto from date + location)")
 	leaves := flag.Bool("leaves", false, "enable the seasonal leaf/snow layer (default on; toggle with 'l')")
+	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("awapp %s\n", version)
+		return
+	}
 
 	if configPath == "" {
 		configPath = defaultConfigPath()
 	}
 	fc := loadFileConfig(configPath)
+	if configFileTooOpen(configPath) {
+		fmt.Fprintln(os.Stderr, "awapp: warning: "+configPath+" is readable by other users (it may hold an API key). Fix with: chmod 600 "+configPath)
+	}
 
 	// Which flags were explicitly given on the command line.
 	set := map[string]bool{}

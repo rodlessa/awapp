@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -51,6 +53,73 @@ func TestPickDur(t *testing.T) {
 	}
 	if pickDur(false, 0, "garbage", time.Minute) != time.Minute {
 		t.Error("bad duration should fall back to default")
+	}
+}
+
+func TestEnvOr(t *testing.T) {
+	t.Setenv("AWAPP_TEST_ENV", "hello")
+	if got := envOr("AWAPP_TEST_ENV", "def"); got != "hello" {
+		t.Errorf("envOr should return the env value, got %q", got)
+	}
+	if got := envOr("AWAPP_TEST_MISSING", "def"); got != "def" {
+		t.Errorf("envOr should return the default when unset, got %q", got)
+	}
+}
+
+func TestStrOr(t *testing.T) {
+	s := "x"
+	if got := strOr(&s); got != "x" {
+		t.Errorf("strOr(ptr) = %q, want %q", got, "x")
+	}
+	if got := strOr(nil); got != "" {
+		t.Errorf("strOr(nil) = %q, want empty", got)
+	}
+}
+
+func TestLoadFileConfig(t *testing.T) {
+	dir := t.TempDir()
+	// Missing file -> zero fileConfig, no error.
+	if fc := loadFileConfig(filepath.Join(dir, "nope.json")); fc.APIKey != nil {
+		t.Error("missing config should return an empty fileConfig")
+	}
+	// Valid JSON is parsed.
+	good := filepath.Join(dir, "good.json")
+	if err := os.WriteFile(good, []byte(`{"api_key":"k","city":"Berlin"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fc := loadFileConfig(good)
+	if fc.APIKey == nil || *fc.APIKey != "k" || fc.City == nil || *fc.City != "Berlin" {
+		t.Errorf("valid config not parsed: %+v", fc)
+	}
+	// Malformed JSON -> falls back to a zero config (and prints to stderr,
+	// which we don't assert here) rather than panicking or corrupting state.
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"api_key": `), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if fc := loadFileConfig(bad); fc.APIKey != nil {
+		t.Error("malformed config should fall back to a zero config")
+	}
+}
+
+func TestConfigFileTooOpen(t *testing.T) {
+	dir := t.TempDir()
+	if configFileTooOpen(filepath.Join(dir, "missing.json")) {
+		t.Error("missing file must not warn")
+	}
+	open := filepath.Join(dir, "open.json")
+	if err := os.WriteFile(open, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !configFileTooOpen(open) {
+		t.Error("0644 config should be flagged as too open")
+	}
+	locked := filepath.Join(dir, "locked.json")
+	if err := os.WriteFile(locked, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if configFileTooOpen(locked) {
+		t.Error("0600 config must not be flagged")
 	}
 }
 
