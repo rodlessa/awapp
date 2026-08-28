@@ -1,0 +1,20 @@
+{
+  "api_key": "your_openweathermap_api_key_optional",
+  "city": "Fortaleza,BR",
+  "use_ip": false,
+  "units": "c",
+  "color": false,
+  "stars": "light",
+  "interval": "5m",
+  "fps": 15,
+  "moon": "auto",
+  "phase": -1,
+  "light_key": "",
+  "eclipse": false,
+  "eclipse_duration": "2m",
+  "solar_eclipse": false,
+  "solar_eclipse_duration": "2m",
+  "size": 15,
+  "season": "auto",
+  "leaves": true
+}

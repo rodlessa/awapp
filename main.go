@@ -1,0 +1,218 @@
+// weatherterm is a dependency-free terminal weather visualizer for
+// Linux. It polls a weather source every 5 minutes and renders the
+// current condition as a full-screen animation. Weather can come from
+// OpenWeatherMap (API key, optional) or from your IP location via
+// ipinfo + Open-Meteo (no key needed).
+//
+// Configuration precedence: command-line flags > environment variables >
+// config file (~/.config/weatherterm/config.json) > defaults. A config
+// file means you never have to export your API key.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"weatherterm/internal/app"
+)
+
+// fileConfig mirrors the JSON config file. Pointer fields distinguish
+// "not set" from an explicit false/zero value.
+type fileConfig struct {
+	APIKey               *string  `json:"api_key"`
+	City                 *string  `json:"city"`
+	Interval             *string  `json:"interval"`
+	FPS                  *int     `json:"fps"`
+	Units                *string  `json:"units"`
+	Color                *bool    `json:"color"`
+	Stars                *string  `json:"stars"`
+	LightKey             *string  `json:"light_key"`
+	Moon                 *string  `json:"moon"`
+	Phase                *float64 `json:"phase"`
+	Eclipse              *bool    `json:"eclipse"`
+	EclipseDuration      *string  `json:"eclipse_duration"`
+	SolarEclipse         *bool    `json:"solar_eclipse"`
+	SolarEclipseDuration *string  `json:"solar_eclipse_duration"`
+	UseIP                *bool    `json:"use_ip"`
+	Size                 *float64 `json:"size"`
+	Season               *string  `json:"season"`
+	Leaves               *bool    `json:"leaves"`
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func defaultConfigPath() string {
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(dir, "weatherterm", "config.json")
+}
+
+func loadFileConfig(path string) fileConfig {
+	var fc fileConfig
+	if path == "" {
+		return fc
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fc // missing file is fine; we fall back to defaults
+	}
+	_ = json.Unmarshal(data, &fc)
+	return fc
+}
+
+func strOr(p *string) string {
+	if p != nil {
+		return *p
+	}
+	return ""
+}
+
+// --- precedence helpers: CLI (if given) > env > config file > default ---
+
+func pickStr(cliSet bool, cli, env, cfg, def string) string {
+	switch {
+	case cliSet:
+		return cli
+	case env != "":
+		return env
+	case cfg != "":
+		return cfg
+	default:
+		return def
+	}
+}
+
+func pickBool(cliSet bool, cli bool, cfg *bool, def bool) bool {
+	if cliSet {
+		return cli
+	}
+	if cfg != nil {
+		return *cfg
+	}
+	return def
+}
+
+func pickInt(cliSet bool, cli int, cfg *int, def int) int {
+	if cliSet {
+		return cli
+	}
+	if cfg != nil {
+		return *cfg
+	}
+	return def
+}
+
+func pickFloat(cliSet bool, cli float64, cfg *float64, def float64) float64 {
+	if cliSet {
+		return cli
+	}
+	if cfg != nil {
+		return *cfg
+	}
+	return def
+}
+
+func pickDur(cliSet bool, cli time.Duration, cfg string, def time.Duration) time.Duration {
+	if cliSet {
+		return cli
+	}
+	if cfg != "" {
+		if d, err := time.ParseDuration(cfg); err == nil {
+			return d
+		}
+	}
+	return def
+}
+
+func main() {
+	var configPath string
+	flag.StringVar(&configPath, "config", "", "path to a config.json (default: ~/.config/weatherterm/config.json)")
+	apiKey := flag.String("apikey", "", "OpenWeatherMap API key (or config file / OPENWEATHERMAP_API_KEY)")
+	city := flag.String("city", "", `City to fetch, e.g. "Fortaleza,BR"; no API key needed (or config file / env; else geolocated)`)
+	useIP := flag.Bool("use-ip", false, "use IP-location weather (ipinfo + Open-Meteo) instead of an API key")
+	interval := flag.Duration("interval", 0, "how often to poll the weather API")
+	fps := flag.Int("fps", 0, "animation frame rate")
+	fahrenheit := flag.Bool("f", false, "start with Fahrenheit display")
+	color := flag.Bool("color", false, "enable 256-color output (default: monochrome)")
+	stars := flag.String("stars", "", "star field: light, full, off")
+	lightKey := flag.String("light-key", "", "lightpollutionmap.info key for exact light-pollution readings")
+	moonMode := flag.String("moon", "", "moon visibility: auto, on, off")
+	eclipse := flag.Bool("eclipse", false, "start a simulated lunar eclipse")
+	eclipseDur := flag.Duration("eclipse-duration", 0, "length of a simulated lunar eclipse")
+	solarEclipse := flag.Bool("solar-eclipse", false, "start a simulated solar eclipse")
+	solarDur := flag.Duration("solar-eclipse-duration", 0, "length of a simulated solar eclipse")
+	phase := flag.Float64("phase", 0, "override moon phase 0..1 (default: compute from date)")
+	size := flag.Float64("size", 0, "Sun/Moon diameter as %% of terminal width (default 15; adjust with '+'/'-')")
+	season := flag.String("season", "", "leaf season: auto, spring, summer, fall, winter (default: auto from date + location)")
+	leaves := flag.Bool("leaves", false, "enable the seasonal leaf/snow layer (default on; toggle with 'l')")
+	flag.Parse()
+
+	if configPath == "" {
+		configPath = defaultConfigPath()
+	}
+	fc := loadFileConfig(configPath)
+
+	// Which flags were explicitly given on the command line.
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	var unitsF *bool
+	if fc.Units != nil {
+		b := strings.EqualFold(*fc.Units, "f")
+		unitsF = &b
+	}
+
+	cfg := app.Config{
+		City:                 pickStr(set["city"], *city, envOr("OPENWEATHERMAP_CITY", envOr("OPENWEATHER_CITY", "")), strOr(fc.City), ""),
+		APIKey:               pickStr(set["apikey"], *apiKey, envOr("OPENWEATHERMAP_API_KEY", envOr("OPENWEATHER_API_KEY", "")), strOr(fc.APIKey), ""),
+		Interval:             pickDur(set["interval"], *interval, strOr(fc.Interval), 5*time.Minute),
+		FPS:                  pickInt(set["fps"], *fps, fc.FPS, 15),
+		StartCelsius:         !pickBool(set["f"], *fahrenheit, unitsF, false),
+		Color:                pickBool(set["color"], *color, fc.Color, false),
+		Stars:                pickStr(set["stars"], *stars, "", strOr(fc.Stars), "light"),
+		LightKey:             pickStr(set["light-key"], *lightKey, envOr("LIGHT_POLLUTION_MAP_API_KEY", ""), strOr(fc.LightKey), ""),
+		MoonMode:             pickStr(set["moon"], *moonMode, "", strOr(fc.Moon), "auto"),
+		MoonPhase:            pickFloat(set["phase"], *phase, fc.Phase, -1),
+		Eclipse:              pickBool(set["eclipse"], *eclipse, fc.Eclipse, false),
+		EclipseDuration:      pickDur(set["eclipse-duration"], *eclipseDur, strOr(fc.EclipseDuration), 2*time.Minute),
+		SolarEclipse:         pickBool(set["solar-eclipse"], *solarEclipse, fc.SolarEclipse, false),
+		SolarEclipseDuration: pickDur(set["solar-eclipse-duration"], *solarDur, strOr(fc.SolarEclipseDuration), 2*time.Minute),
+		UseIP:                pickBool(set["use-ip"], *useIP, fc.UseIP, false),
+		SizePct:              pickFloat(set["size"], *size, fc.Size, 15),
+		Season:               pickStr(set["season"], *season, "", strOr(fc.Season), "auto"),
+		Leaves:               pickBool(set["leaves"], *leaves, fc.Leaves, true),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		cancel()
+	}()
+	defer cancel()
+
+	if err := app.Run(ctx, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "weatherterm:", err)
+		os.Exit(1)
+	}
+}
