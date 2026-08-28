@@ -1,0 +1,7 @@
+# Build artifacts — only PKGBUILD + .SRCINFO go to the AUR repo
+src/
+pkg/
+*.pkg.tar
+*.pkg.tar.zst
+*.log
+awapp-*.tar.gz

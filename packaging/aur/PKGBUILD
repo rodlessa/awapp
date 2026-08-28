@@ -19,7 +19,7 @@ license=('MIT')
 depends=()
 makedepends=('go')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/rodlessa/awapp/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('c2affa84ed5b86762a6dcf67eedf0b32baaaf416a8b3fe508295f5c905699842')
 
 build() {
   cd "$pkgname-$pkgver"

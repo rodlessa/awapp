@@ -1,0 +1,13 @@
+pkgbase = awapp
+	pkgdesc = Another Weather App — dependency-free terminal weather visualizer with ANSI animation (keyless Open-Meteo, seasons, leaves, eclipses)
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/rodlessa/awapp
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = go
+	source = awapp-1.0.0.tar.gz::https://github.com/rodlessa/awapp/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = c2affa84ed5b86762a6dcf67eedf0b32baaaf416a8b3fe508295f5c905699842
+
+pkgname = awapp
