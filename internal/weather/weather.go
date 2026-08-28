@@ -93,7 +93,7 @@ func geolocate(ctx context.Context, hc *http.Client, u string) (geoInfo, error) 
 	if err != nil {
 		return geoInfo{}, err
 	}
-	req.Header.Set("User-Agent", "weatherterm/1.0")
+	req.Header.Set("User-Agent", "awapp/1.0")
 	resp, err := hc.Do(req)
 	if err != nil {
 		return geoInfo{}, err
@@ -390,7 +390,7 @@ func geocodeCity(ctx context.Context, hc *http.Client, u, city string) (geoInfo,
 	if err != nil {
 		return geoInfo{}, err
 	}
-	req.Header.Set("User-Agent", "weatherterm/1.0")
+	req.Header.Set("User-Agent", "awapp/1.0")
 	resp, err := hc.Do(req)
 	if err != nil {
 		return geoInfo{}, err
@@ -439,7 +439,7 @@ func meteoFetch(ctx context.Context, hc *http.Client, meteoURL string, g *geoInf
 	if err != nil {
 		return Report{}, err
 	}
-	req.Header.Set("User-Agent", "weatherterm/1.0")
+	req.Header.Set("User-Agent", "awapp/1.0")
 	resp, err := hc.Do(req)
 	if err != nil {
 		return Report{}, fmt.Errorf("open-meteo: %w", err)

@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // A library of ASCII cloud types so different weather can use different

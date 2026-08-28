@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // Season is the (hemisphere-aware) time of year. It picks the ambient

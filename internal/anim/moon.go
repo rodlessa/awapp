@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // MoonOptions controls how the Moon is rendered in the night scene.

@@ -136,7 +136,7 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "weatherterm/1.0")
+	req.Header.Set("User-Agent", "awapp/1.0")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err

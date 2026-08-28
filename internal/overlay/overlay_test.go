@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // Truncating a panel line on a narrow terminal must never split a

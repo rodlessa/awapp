@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 func TestSunMoonProgress(t *testing.T) {

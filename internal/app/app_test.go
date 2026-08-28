@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"weatherterm/internal/weather"
+	"awapp/internal/weather"
 )
 
 // Regression test: Fortaleza on 2026-08-28 — sunrise 05:34 local, sunset

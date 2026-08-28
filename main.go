@@ -1,11 +1,11 @@
-// weatherterm is a dependency-free terminal weather visualizer for
+// awapp is a dependency-free terminal weather visualizer for
 // Linux. It polls a weather source every 5 minutes and renders the
 // current condition as a full-screen animation. Weather can come from
 // OpenWeatherMap (API key, optional) or from your IP location via
 // ipinfo + Open-Meteo (no key needed).
 //
 // Configuration precedence: command-line flags > environment variables >
-// config file (~/.config/weatherterm/config.json) > defaults. A config
+// config file (~/.config/awapp/config.json) > defaults. A config
 // file means you never have to export your API key.
 package main
 
@@ -21,7 +21,7 @@ import (
 	"syscall"
 	"time"
 
-	"weatherterm/internal/app"
+	"awapp/internal/app"
 )
 
 // fileConfig mirrors the JSON config file. Pointer fields distinguish
@@ -63,7 +63,7 @@ func defaultConfigPath() string {
 		}
 		dir = filepath.Join(home, ".config")
 	}
-	return filepath.Join(dir, "weatherterm", "config.json")
+	return filepath.Join(dir, "awapp", "config.json")
 }
 
 func loadFileConfig(path string) fileConfig {
@@ -145,7 +145,7 @@ func pickDur(cliSet bool, cli time.Duration, cfg string, def time.Duration) time
 
 func main() {
 	var configPath string
-	flag.StringVar(&configPath, "config", "", "path to a config.json (default: ~/.config/weatherterm/config.json)")
+	flag.StringVar(&configPath, "config", "", "path to a config.json (default: ~/.config/awapp/config.json)")
 	apiKey := flag.String("apikey", "", "OpenWeatherMap API key (or config file / OPENWEATHERMAP_API_KEY)")
 	city := flag.String("city", "", `City to fetch, e.g. "Fortaleza,BR"; no API key needed (or config file / env; else geolocated)`)
 	useIP := flag.Bool("use-ip", false, "use IP-location weather (ipinfo + Open-Meteo) instead of an API key")
@@ -212,7 +212,7 @@ func main() {
 	defer cancel()
 
 	if err := app.Run(ctx, cfg); err != nil {
-		fmt.Fprintln(os.Stderr, "weatherterm:", err)
+		fmt.Fprintln(os.Stderr, "awapp:", err)
 		os.Exit(1)
 	}
 }

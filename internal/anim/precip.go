@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/rand"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // Mode selects the glyph/behavior family for Precip.

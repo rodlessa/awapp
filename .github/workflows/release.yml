@@ -18,12 +18,12 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact: weatherterm-linux
-            bin: weatherterm
+            artifact: awapp-linux
+            bin: awapp
           - name: windows
             os: windows-latest
-            artifact: weatherterm-windows
-            bin: weatherterm.exe
+            artifact: awapp-windows
+            bin: awapp.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,9 +65,9 @@ jobs:
       - name: Package
         run: |
           mkdir -p out
-          cp dist/weatherterm-linux/weatherterm out/weatherterm-linux
-          cp dist/weatherterm-windows/weatherterm.exe out/weatherterm-windows.exe
-          tar -czf out/weatherterm-linux.tar.gz -C dist/weatherterm-linux weatherterm
+          cp dist/awapp-linux/awapp out/awapp-linux
+          cp dist/awapp-windows/awapp.exe out/awapp-windows.exe
+          tar -czf out/awapp-linux.tar.gz -C dist/awapp-linux awapp
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -76,13 +76,13 @@ jobs:
           body: |
             Auto-built from `${{ github.sha }}` on `${{ github.ref_name }}`.
 
-            - **weatherterm-linux** — Linux x86-64 (also as `.tar.gz`)
-            - **weatherterm-windows.exe** — Windows x86-64 console binary
+            - **awapp-linux** — Linux x86-64 (also as `.tar.gz`)
+            - **awapp-windows.exe** — Windows x86-64 console binary
 
-            Run with `./weatherterm -city "Your City"` (no API key needed).
+            Run with `./awapp -city "Your City"` (no API key needed).
           prerelease: ${{ steps.meta.outputs.prerelease }}
           files: |
-            out/weatherterm-linux
-            out/weatherterm-linux.tar.gz
-            out/weatherterm-windows.exe
+            out/awapp-linux
+            out/awapp-linux.tar.gz
+            out/awapp-windows.exe
           fail_on_unmatched_files: false

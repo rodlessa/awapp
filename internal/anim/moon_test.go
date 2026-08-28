@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 func TestMoonPhaseKnownDates(t *testing.T) {

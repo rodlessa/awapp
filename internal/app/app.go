@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"weatherterm/internal/anim"
-	"weatherterm/internal/light"
-	"weatherterm/internal/overlay"
-	"weatherterm/internal/render"
-	"weatherterm/internal/term"
-	"weatherterm/internal/weather"
+	"awapp/internal/anim"
+	"awapp/internal/light"
+	"awapp/internal/overlay"
+	"awapp/internal/render"
+	"awapp/internal/term"
+	"awapp/internal/weather"
 )
 
 type Config struct {
@@ -330,11 +330,11 @@ func resolveFetcher(cfg Config) (weather.Fetcher, bool) {
 		return weather.NewClient(cfg.APIKey, cfg.City), false
 	}
 	if cfg.City != "" {
-		fmt.Fprintln(os.Stderr, "weatherterm: using keyless city weather for "+cfg.City+" (no API key)")
+		fmt.Fprintln(os.Stderr, "awapp: using keyless city weather for "+cfg.City+" (no API key)")
 		return weather.NewCityClient(cfg.City), false
 	}
 	if cfg.UseIP || askUseIP() {
-		fmt.Fprintln(os.Stderr, "weatherterm: using IP-location weather (no API key)")
+		fmt.Fprintln(os.Stderr, "awapp: using IP-location weather (no API key)")
 		return weather.NewIPClient(), false
 	}
 	return weather.NewClient("", cfg.City), true

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 func TestSeasonForHemispheres(t *testing.T) {

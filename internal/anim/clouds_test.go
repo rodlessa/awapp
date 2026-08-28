@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 func TestCloudArtSelection(t *testing.T) {

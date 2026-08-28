@@ -1,4 +1,4 @@
-# weatherterm
+# awapp
 
 A full-screen terminal weather visualizer for Linux. It renders the
 current condition as an animation: rain, drifting clouds, or a
@@ -36,7 +36,7 @@ Requires Go 1.21+ and nothing else (no `go mod download` needed —
 there are no external dependencies).
 
 ```sh
-go build -o weatherterm .
+go build -o awapp .
 ```
 
 ## Run
@@ -44,7 +44,7 @@ go build -o weatherterm .
 Easiest — **no API key, no registration** (uses your IP location):
 
 ```sh
-./weatherterm
+./awapp
 ```
 
 It asks once: `No API key found. Use weather from your IP location
@@ -54,10 +54,10 @@ Want a specific place instead of your IP? Just name it — **still no key
 needed**:
 
 ```sh
-./weatherterm -city "Fortaleza,BR"
+./awapp -city "Fortaleza,BR"
 # or put only a city in the config file:
-echo '{"city": "Berlin"}' > ~/.config/weatherterm/config.json
-./weatherterm
+echo '{"city": "Berlin"}' > ~/.config/awapp/config.json
+./awapp
 ```
 
 That resolves the city with Open-Meteo's free geocoder and fetches its
@@ -66,11 +66,11 @@ weather; no API key, no prompt.
 With an OpenWeatherMap key (optional, more accurate):
 
 ```sh
-./weatherterm -apikey your_key_here -city "Fortaleza,BR"
+./awapp -apikey your_key_here -city "Fortaleza,BR"
 # or, so you never have to export the key again:
-mkdir -p ~/.config/weatherterm
-echo '{"api_key": "your_key_here", "city": "Fortaleza,BR"}' > ~/.config/weatherterm/config.json
-./weatherterm
+mkdir -p ~/.config/awapp
+echo '{"api_key": "your_key_here", "city": "Fortaleza,BR"}' > ~/.config/awapp/config.json
+./awapp
 ```
 
 Get a free OpenWeatherMap key at <https://openweathermap.org/api> (the
@@ -84,8 +84,8 @@ and waits for you to press a number key to pick a condition manually.
 Settings are resolved in this order: **command-line flags > environment
 variables > config file > defaults**.
 
-The config file lives at `~/.config/weatherterm/config.json` (or
-`$XDG_CONFIG_HOME/weatherterm/config.json`); point elsewhere with
+The config file lives at `~/.config/awapp/config.json` (or
+`$XDG_CONFIG_HOME/awapp/config.json`); point elsewhere with
 `-config`. See `config.example.json`:
 
 ```json
@@ -148,8 +148,8 @@ binaries, runs the test suite, and publishes them as a GitHub Release:
   latest builds.
 - **tag `v1.2.3`** → a proper versioned release `v1.2.3`.
 
-Each release contains `weatherterm-linux` (+ `.tar.gz`) and
-`weatherterm-windows.exe`. To release a new version, just push a tag:
+Each release contains `awapp-linux` (+ `.tar.gz`) and
+`awapp-windows.exe`. To release a new version, just push a tag:
 
 ```bash
 git tag v1.0.0 && git push origin v1.0.0

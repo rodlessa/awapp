@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 type Info struct {

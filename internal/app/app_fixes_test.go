@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"weatherterm/internal/anim"
-	"weatherterm/internal/weather"
+	"awapp/internal/anim"
+	"awapp/internal/weather"
 )
 
 // The offline picker must explain *why* it is offline (the fetch error

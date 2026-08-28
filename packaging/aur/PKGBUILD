@@ -1,0 +1,40 @@
+# Maintainer: rodlessa <you@example.com>
+#
+# AUR package for awapp (Another Weather App).
+#
+# Before submitting: tag the release you want packaged, e.g.
+#   git tag v1.0.0 && git push origin v1.0.0
+# then from this directory:
+#   updpkgsums                     # fill in the real sha256sum
+#   makepkg --printsrcinfo > .SRCINFO
+#   makepkg -f && makepkg --install   # test-build locally
+
+pkgname=awapp
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Another Weather App — dependency-free terminal weather visualizer with ANSI animation (keyless Open-Meteo, seasons, leaves, eclipses)"
+arch=('x86_64' 'aarch64')
+url="https://github.com/rodlessa/awapp"
+license=('MIT')
+depends=()
+makedepends=('go')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rodlessa/awapp/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  go build -trimpath -ldflags='-s -w' -o awapp .
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  go test ./...
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 awapp "$pkgdir/usr/bin/awapp"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 config.example.json "$pkgdir/usr/share/doc/$pkgname/config.example.json"
+}

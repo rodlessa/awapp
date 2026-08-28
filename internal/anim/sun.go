@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"time"
 
-	"weatherterm/internal/render"
+	"awapp/internal/render"
 )
 
 // SkyTimes carries a location's sunrise/sunset so the Sun and Moon can be
