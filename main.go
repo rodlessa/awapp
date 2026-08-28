@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -90,7 +91,12 @@ func loadFileConfig(path string) fileConfig {
 
 // configFileTooOpen reports whether the config file is readable by other
 // users — it may hold a plaintext API key, so the app warns about it.
+// Windows has no owner/group/other permission bits (files always report
+// 0666), so the check only applies on Unix-likes.
 func configFileTooOpen(path string) bool {
+	if runtime.GOOS == "windows" {
+		return false
+	}
 	if path == "" {
 		return false
 	}

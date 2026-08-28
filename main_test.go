@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -103,6 +104,9 @@ func TestLoadFileConfig(t *testing.T) {
 }
 
 func TestConfigFileTooOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are not meaningful on Windows")
+	}
 	dir := t.TempDir()
 	if configFileTooOpen(filepath.Join(dir, "missing.json")) {
 		t.Error("missing file must not warn")
