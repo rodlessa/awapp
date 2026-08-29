@@ -56,12 +56,18 @@ type Precip struct {
 	drops     []drop
 	wDrops    []wDrop
 	flashLeft int
+	boltX     int     // x column of the current lightning bolt (-1 = none)
 	t         float64 // animation clock
-	rng       *rand.Rand
+	// rainbow state: rainT accumulates continuous rain, then a rainbow can
+	// briefly appear while the sun is still out (probability-based).
+	rainT    float64
+	rainbow  bool
+	rainbowT float64
+	rng      *rand.Rand
 }
 
 func NewPrecip(mode Mode, heavy, thunder bool, wind, windDir float64) *Precip {
-	return &Precip{Mode: mode, Heavy: heavy, Thunder: thunder, CloudsOn: true, wind: wind, windDir: windDir, rng: rand.New(rand.NewSource(1))}
+	return &Precip{Mode: mode, Heavy: heavy, Thunder: thunder, CloudsOn: true, wind: wind, windDir: windDir, boltX: -1, rng: rand.New(rand.NewSource(1))}
 }
 
 // SetTopMargin reserves rows at the top of the screen (the status panel)
@@ -200,9 +206,34 @@ func (p *Precip) Tick() {
 	if p.Thunder {
 		if p.flashLeft > 0 {
 			p.flashLeft--
-		} else if p.rng.Float64() < 0.01 {
-			p.flashLeft = 2
+		} else {
+			// Flash frequency tracks storm intensity: heavy storms flash
+			// about 3x more often.
+			prob := 0.015
+			if p.Heavy {
+				prob = 0.04
+			}
+			if p.rng.Float64() < prob {
+				p.flashLeft = 2
+				p.boltX = p.rng.Intn(p.w)
+			}
 		}
+	}
+	// Rainbow-after-rain: after a spell of continuous rain there is a small
+	// chance a rainbow arches across the sky for a few seconds.
+	if p.Mode == ModeRain {
+		p.rainT += 0.15
+	} else {
+		p.rainT = 0
+	}
+	if p.rainbow {
+		p.rainbowT -= 0.15
+		if p.rainbowT <= 0 {
+			p.rainbow = false
+		}
+	} else if p.rainT > 300 && p.rng.Float64() < 0.005 {
+		p.rainbow = true
+		p.rainbowT = 120
 	}
 }
 
@@ -222,15 +253,22 @@ func (p *Precip) Draw(buf *render.Buffer) {
 	p.drawCloudDeck(buf)
 
 	if p.flashLeft > 0 {
-		// Bright flash: keep drops visible but everything reads as lit.
+		// Bright flash: keep drops visible but everything reads as lit,
+		// and a jagged bolt cracks down from the storm deck.
 		for _, d := range p.drops {
 			buf.Set(int(d.x), int(d.y), d.glyph, 255, true)
 		}
+		p.drawBolt(buf)
 		return
 	}
 
 	for _, d := range p.drops {
 		buf.Set(int(d.x), int(d.y), d.glyph, d.shade, d.mode == ModeSnow)
+	}
+
+	// Rainbow-after-rain, drawn over the sky before the window droplets.
+	if p.rainbow {
+		p.drawRainbow(buf)
 	}
 
 	// Rain on the window: slow streaks running down the pane in front of
@@ -241,6 +279,48 @@ func (p *Precip) Draw(buf *render.Buffer) {
 				buf.Set(int(wd.x), int(wd.y)-i, '¦', wd.shade, false)
 			}
 			buf.Set(int(wd.x), int(wd.y), '\'', 255, false)
+		}
+	}
+}
+
+// drawBolt paints a lightning bolt beneath the storm cloud deck.
+func (p *Precip) drawBolt(buf *render.Buffer) {
+	if p.boltX < 0 {
+		return
+	}
+	// A short bright bolt that zigs downward from the deck.
+	y := p.topMargin + 2
+	for i := 0; i < 5; i++ {
+		x := p.boltX + (i % 3) // jag
+		buf.Set(x, y+i, '⚡', 255, true)
+	}
+}
+
+// drawRainbow paints a seven-band arc across the upper sky while the sun
+// is still out after rain.
+func (p *Precip) drawRainbow(buf *render.Buffer) {
+	if p.w == 0 || p.h == 0 {
+		return
+	}
+	cx := p.w / 2
+	horizon := int(float64(p.h) * 0.75)
+	if horizon < 4 {
+		return
+	}
+	// ROYGBIV-ish 256-color ramp.
+	colors := []uint8{196, 208, 226, 46, 33, 21, 93}
+	base := float64(horizon) / 3
+	for y := 0; y < horizon; y++ {
+		dy := float64(horizon - y)
+		for x := 0; x < p.w; x++ {
+			d := math.Sqrt(float64(x-cx)*float64(x-cx) + dy*dy)
+			for b, col := range colors {
+				r := base + float64(b) + 0.5
+				if math.Abs(d-r) < 0.6 {
+					buf.Set(x, y, '⣿', col, true)
+					break
+				}
+			}
 		}
 	}
 }

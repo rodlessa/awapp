@@ -103,16 +103,29 @@ func TestDiscRadiusDefaultAndClamp(t *testing.T) {
 
 func TestSetStarFactorScalesStars(t *testing.T) {
 	s := NewSun(true, MoonOptions{})
-	s.Resize(80, 24)
+	s.SetLocation(40, -100)
+	s.Resize(120, 30)
+	now := time.Date(2026, 8, 28, 2, 0, 0, 0, time.UTC)
+	buf := render.NewBuffer(120, 30)
+
 	s.SetStarFactor(1.0)
-	full := len(s.sparkles)
+	buf.Clear(17)
+	s.stars.Draw(buf, s.starFactor, now)
+	full := countStars(buf)
+
 	s.SetStarFactor(0.0)
-	none := len(s.sparkles)
+	buf.Clear(17)
+	s.stars.Draw(buf, s.starFactor, now)
+	city := countStars(buf)
+
 	if full == 0 {
 		t.Fatal("expected stars at full factor")
 	}
-	if none != 0 {
-		t.Errorf("expected 0 stars at factor 0, got %d", none)
+	if city == 0 {
+		t.Error("expected at least a few bright stars even at factor 0")
+	}
+	if full <= city {
+		t.Errorf("dark sky should show more stars than a city: full=%d city=%d", full, city)
 	}
 }
 
@@ -176,6 +189,7 @@ func TestDrawSolarEclipsePartial(t *testing.T) {
 func TestDrawNightWithLightPollution(t *testing.T) {
 	buf := render.NewBuffer(80, 24)
 	s := NewSun(true, MoonOptions{PhaseOverride: 0.5})
+	s.SetLocation(40, -100)
 	s.Resize(80, 24)
 	s.SetStarFactor(0.1) // heavy light pollution -> few stars
 	s.Draw(buf)

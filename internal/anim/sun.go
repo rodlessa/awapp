@@ -2,7 +2,6 @@ package anim
 
 import (
 	"math"
-	"math/rand"
 	"time"
 
 	"awapp/internal/render"
@@ -15,12 +14,20 @@ type SkyTimes struct {
 	Timezone        int64
 }
 
-type sparkle struct {
-	x, y  float64
-	vy    float64
-	phase float64
-	shade uint8
+// Palette tunes the clear-sky scene colors. The default is the classic
+// look; the app can swap it with -theme (sunset, ocean, forest).
+type Palette struct {
+	NightSky uint8 // night background shade
+	StarMax  uint8 // brightest star shade
+	Sun      uint8 // sun disc shade
 }
+
+var (
+	DefaultPalette = Palette{NightSky: 17, StarMax: 245, Sun: 226}
+	SunsetPalette  = Palette{NightSky: 52, StarMax: 223, Sun: 214}
+	OceanPalette   = Palette{NightSky: 24, StarMax: 117, Sun: 45}
+	ForestPalette  = Palette{NightSky: 22, StarMax: 108, Sun: 142}
+)
 
 // Sun renders clear skies.
 //
@@ -30,9 +37,10 @@ type sparkle struct {
 // warm-to-cool gradient; during a solar eclipse it gets eaten by the
 // Moon's silhouette, the sky darkens, and a corona shows at totality.
 //
-// At night it becomes a twinkling starfield whose density reflects the
-// local light pollution, plus a simple phase-accurate ASCII Moon that
-// likewise rises and arcs across the night sky.
+// At night it shows the real night sky — the brightest stars placed
+// from the observer's location and the local sidereal time (no network),
+// dimmed by the local light pollution — plus a simple phase-accurate
+// ASCII Moon that likewise rises and arcs across the night sky.
 //
 // The '+' and '-' keys resize the Sun and Moon (default: 15% of the
 // terminal width).
@@ -42,13 +50,21 @@ type Sun struct {
 	Times SkyTimes
 	w, h  int
 
-	sparkles []sparkle
-	rng      *rand.Rand
-	t        float64 // animation clock
+	// stars renders the real night sky: catalog stars placed from the
+	// observer's coordinates and the local sidereal time (no network).
+	stars *StarField
+	// palette tunes the scene colors (-theme).
+	palette Palette
 
-	// starFactor (0..1) scales how many stars/motes are drawn. It is set
-	// from the estimated local light pollution (see internal/light).
+	// starFactor (0..1) is the light-pollution level (0 = city, 1 =
+	// pristine sky); it decides how faint a star can be before it's
+	// washed out. Set from the estimated local light pollution (see
+	// internal/light).
 	starFactor float64
+	// aurora (0..1) is the estimated aurora visibility (from NOAA Kp + the
+	// observer's latitude); a wavy green band shows in the night sky when
+	// it's non-zero.
+	aurora float64
 	// topMargin reserves rows at the top of the screen for the status
 	// panel, so the Sun/Moon arc below it and never hide behind it.
 	topMargin int
@@ -64,7 +80,8 @@ func NewSun(night bool, opts MoonOptions) *Sun {
 	return &Sun{
 		Night:      night,
 		Opts:       opts,
-		rng:        rand.New(rand.NewSource(3)),
+		stars:      NewStarField(), // location set later via SetLocation
+		palette:    DefaultPalette,
 		starFactor: 0.5, // default until light-pollution data arrives
 		sizePct:    15,  // default: 15% of the terminal width
 	}
@@ -73,6 +90,34 @@ func NewSun(night bool, opts MoonOptions) *Sun {
 // SetTimes stores the location's sunrise/sunset for positioning the Sun
 // and Moon by time of day.
 func (s *Sun) SetTimes(t SkyTimes) { s.Times = t }
+
+// SetLocation stores the observer's coordinates so the night scene can
+// compute real star positions from location + time.
+func (s *Sun) SetLocation(lat, lon float64) { s.stars.SetLocation(lat, lon) }
+
+// SetStarsVisible hides (false) or shows (true) the star field, used by
+// the app's Stars:off toggle. The Moon is unaffected.
+func (s *Sun) SetStarsVisible(v bool) { s.stars.SetVisible(v) }
+
+// SetSkyline sets the city-skyline level (0..3) drawn in the night scene.
+func (s *Sun) SetSkyline(level int) { s.stars.SetSkyline(level) }
+
+// SetPalette applies a color theme to the clear-sky scene.
+func (s *Sun) SetPalette(p Palette) {
+	s.palette = p
+	s.stars.SetStarMax(p.StarMax)
+}
+
+// SetAurora sets the aurora visibility (0..1) for the night scene.
+func (s *Sun) SetAurora(v float64) {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	s.aurora = v
+}
 
 // SetSize sets the Sun/Moon diameter as a % of terminal width (clamped).
 func (s *Sun) SetSize(pct float64) {
@@ -92,6 +137,7 @@ func (s *Sun) SetTopMargin(rows int) {
 		rows = 0
 	}
 	s.topMargin = rows
+	s.stars.SetTopMargin(rows)
 }
 
 // SizePct returns the current Sun/Moon diameter as a % of terminal width.
@@ -106,7 +152,7 @@ func (s *Sun) Phase() float64 {
 	if s.Opts.PhaseOverride >= 0 {
 		return s.Opts.PhaseOverride
 	}
-	return MoonPhaseAt(time.Now())
+	return MoonPhaseAt(clock())
 }
 
 // MoonVisible reports whether the Moon should be drawn right now. In
@@ -125,7 +171,7 @@ func (s *Sun) Eclipse() (float64, bool) {
 	if !s.Opts.Eclipse {
 		return 0, false
 	}
-	return EclipseProgress(s.Opts.EclipseStart, s.Opts.EclipseDuration, time.Now())
+	return EclipseProgress(s.Opts.EclipseStart, s.Opts.EclipseDuration, clock())
 }
 
 // Solar returns the current solar-eclipse progress (0..1) and whether a
@@ -134,7 +180,7 @@ func (s *Sun) Solar() (float64, bool) {
 	if !s.SolarEclipse {
 		return 0, false
 	}
-	return EclipseProgress(s.SolarEclipseStart, s.SolarEclipseDuration, time.Now())
+	return EclipseProgress(s.SolarEclipseStart, s.SolarEclipseDuration, clock())
 }
 
 // SetSolar starts/stops a simulated solar eclipse.
@@ -144,8 +190,8 @@ func (s *Sun) SetSolar(active bool, start time.Time, dur time.Duration) {
 	s.SolarEclipseDuration = dur
 }
 
-// SetStarFactor scales the star/mote density to match local light
-// pollution and regenerates the field.
+// SetStarFactor sets the light-pollution level (0..1): it decides how
+// faint a star can be before it's washed out of the night sky.
 func (s *Sun) SetStarFactor(f float64) {
 	if f < 0 {
 		f = 0
@@ -154,63 +200,17 @@ func (s *Sun) SetStarFactor(f float64) {
 		f = 1
 	}
 	s.starFactor = f
-	s.reseedStars()
 }
 
 func (s *Sun) Resize(w, h int) {
 	s.w, s.h = w, h
-	s.reseedStars()
+	s.stars.Resize(w, h)
 }
 
-func (s *Sun) reseedStars() {
-	if s.w == 0 || s.h == 0 {
-		return
-	}
-	base := float64(s.w*s.h) / 60
-	n := int(base * s.starFactor)
-	if n < 4 && s.starFactor > 0 {
-		n = 4 // even the most light-polluted sky still shows a few bright stars
-	}
-	if n > 250 {
-		n = 250
-	}
-	s.sparkles = make([]sparkle, n)
-	for i := range s.sparkles {
-		s.sparkles[i] = s.newSparkle(true)
-	}
-}
-
-func (s *Sun) newSparkle(randomY bool) sparkle {
-	sp := sparkle{
-		x:     s.rng.Float64() * float64(s.w),
-		phase: s.rng.Float64() * math.Pi * 2,
-	}
-	if randomY {
-		sp.y = s.rng.Float64() * float64(s.h)
-	} else {
-		sp.y = float64(s.h) - 1
-	}
-	if s.Night {
-		sp.vy = 0 // stars don't fall, they twinkle in place
-	} else {
-		sp.vy = -(0.02 + s.rng.Float64()*0.04) // gentle upward drift, like heat shimmer/light motes
-	}
-	return sp
-}
-
-func (s *Sun) Tick() {
-	s.t += 0.15
-	for i := range s.sparkles {
-		sp := &s.sparkles[i]
-		sp.phase += 0.2
-		if !s.Night {
-			sp.y += sp.vy
-			if sp.y < 0 {
-				*sp = s.newSparkle(false)
-			}
-		}
-	}
-}
+// Tick advances the animation clock. The real night sky is recomputed
+// from the current time on every Draw, so nothing needs a per-frame
+// update here; the method exists to satisfy the animator interface.
+func (s *Sun) Tick() {}
 
 // discRadius returns the Sun/Moon half-width and half-height in cells for
 // the configured size (% of terminal width), clamped to fit the screen.
@@ -321,7 +321,7 @@ func (s *Sun) drawDay(buf *render.Buffer, solarProg float64, solarActive bool) {
 	// The Sun's on-screen position follows its real progress through the
 	// day: near the bottom at sunrise, arcing up, and down to the horizon
 	// at sunset.
-	p, up := s.sunProgress(time.Now())
+	p, up := s.sunProgress(clock())
 	if !up {
 		p = 0.5 // the day scene should only run while the Sun is up
 	}
@@ -349,8 +349,8 @@ func (s *Sun) drawDay(buf *render.Buffer, solarProg float64, solarActive bool) {
 	if !total {
 		rays := [][2]int{{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {-1, 1}, {1, -1}, {-1, -1}}
 		for _, d := range rays {
-			buf.Set(cx+d[0]*(rw+1), cy+d[1]*(rh+1), '*', 220, false)
-			buf.Set(cx+d[0]*(rw+2), cy+d[1]*(rh+2), '*', 220, false)
+			buf.Set(cx+d[0]*(rw+1), cy+d[1]*(rh+1), '*', s.palette.Sun, false)
+			buf.Set(cx+d[0]*(rw+2), cy+d[1]*(rh+2), '*', s.palette.Sun, false)
 		}
 	}
 
@@ -384,7 +384,7 @@ func (s *Sun) drawDay(buf *render.Buffer, solarProg float64, solarActive bool) {
 			if idx >= len(sunRamp) {
 				idx = len(sunRamp) - 1
 			}
-			buf.Set(cx+dx, cy+dy, sunRamp[idx], 226, true)
+			buf.Set(cx+dx, cy+dy, sunRamp[idx], s.palette.Sun, true)
 		}
 	}
 
@@ -395,24 +395,24 @@ func (s *Sun) drawDay(buf *render.Buffer, solarProg float64, solarActive bool) {
 }
 
 func (s *Sun) drawNight(buf *render.Buffer) {
-	buf.Clear(17) // deep night blue
+	buf.Clear(s.palette.NightSky) // deep night blue
 
-	// Twinkling starfield: brightness pulses per-star via its phase. The
-	// number of stars reflects the local light pollution (starFactor).
-	for _, sp := range s.sparkles {
-		twinkle := (math.Sin(sp.phase) + 1) / 2 // 0..1
-		shade := uint8(59 + twinkle*180)
-		ch := '.'
-		if twinkle > 0.7 {
-			ch = '*'
-		}
-		buf.Set(int(sp.x), int(sp.y), ch, shade, twinkle > 0.85)
+	// The real night sky: catalog stars are placed from their equatorial
+	// coordinates using the local sidereal time and the observer's
+	// location (no network). Light pollution (starFactor) decides how
+	// faint a star can be before it's washed out.
+	s.stars.Draw(buf, s.starFactor, clock())
+
+	// Aurora: a wavy green band near the top when geomagnetic activity
+	// (NOAA Kp) and the observer's latitude make it likely.
+	if s.aurora > 0 {
+		drawAurora(buf, s.aurora, clock())
 	}
 
 	// The Moon rises, arcs across the night sky, and sets — its on-screen
 	// position follows the time since sunset.
 	if s.MoonVisible() {
-		p, up := s.moonProgress(time.Now())
+		p, up := s.moonProgress(clock())
 		if !up {
 			p = 0.5 // the night scene should only run while the Moon is up
 		}
@@ -430,6 +430,32 @@ func (s *Sun) drawNight(buf *render.Buffer) {
 func dist(x, y, cx, cy int) float64 {
 	dx, dy := float64(x-cx), float64(y-cy)*2 // correct for cell aspect ratio
 	return math.Sqrt(dx*dx + dy*dy)
+}
+
+// drawAurora paints a wavy green aurora band across the top of the night
+// sky. Intensity (0..1) scales its height and brightness.
+func drawAurora(buf *render.Buffer, intensity float64, t time.Time) {
+	if intensity <= 0 || buf.H < 8 {
+		return
+	}
+	rows := 3 + int(intensity*6)
+	if rows > buf.H/3 {
+		rows = buf.H / 3
+	}
+	phase := float64(t.UnixNano()) / 5e8
+	for y := 0; y < rows; y++ {
+		falloff := 1 - float64(y)/float64(rows)
+		for x := 0; x < buf.W; x++ {
+			wave := math.Sin(float64(x)*0.12 + phase + float64(y)*0.5)
+			edge := math.Sin(float64(x)*0.06+phase*0.7)*0.5 - 0.1
+			val := intensity * falloff * (0.55 + 0.45*math.Sin(float64(x)*0.18+phase*1.3))
+			if wave < edge || val < 0.12 {
+				continue
+			}
+			shade := uint8(28 + val*58) // greens 28..~86
+			buf.Set(x, y, '⠿', shade, val > 0.65)
+		}
+	}
 }
 
 // gradientShade maps a normalized distance (0=sun, 1=far edge) to a

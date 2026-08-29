@@ -97,6 +97,7 @@ type Clouds struct {
 	// so clouds drift below it instead of hiding behind it.
 	topMargin int
 	puffs     []puff
+	t         float64 // animation clock (fog drift)
 	rng       *rand.Rand
 }
 
@@ -200,6 +201,7 @@ func (c *Clouds) Tick() {
 	if c.w == 0 {
 		return
 	}
+	c.t += 0.15
 	for i := range c.puffs {
 		p := &c.puffs[i]
 		p.x += p.speed
@@ -235,6 +237,42 @@ func (c *Clouds) Draw(buf *render.Buffer) {
 				x := int(p.x) + i
 				buf.Set(x, y, ch, p.shade, false)
 			}
+		}
+	}
+
+	// Fog/mist: a slow-drifting ground bank across the lower third, denser
+	// toward the floor — the actual "fog you walk through", not just the
+	// wispy cirrus up top.
+	if c.Misty {
+		drawFogBank(buf, c.t, c.w, c.h)
+	}
+}
+
+// drawFogBank paints a dense, slowly-drifting fog layer over the lower
+// part of the scene. Density builds toward the bottom and undulates with
+// time so it reads as rolling fog rather than a static band.
+func drawFogBank(buf *render.Buffer, t float64, w, h int) {
+	if w == 0 || h == 0 {
+		return
+	}
+	start := h - h/3
+	if start < 0 {
+		start = 0
+	}
+	fogChars := []rune{'⠂', '⠃', '⠇', '⣿'}
+	for y := start; y < h; y++ {
+		depth := float64(y-start) / float64(h-start) // 0 at top of bank, 1 at floor
+		for x := 0; x < w; x++ {
+			n := math.Sin(float64(x)*0.35 + t*0.5 + float64(y)*0.8)
+			dens := 0.35*depth + 0.25
+			if n < dens {
+				continue
+			}
+			idx := int((n+1)/2*float64(len(fogChars)-1) + 0.5)
+			if idx >= len(fogChars) {
+				idx = len(fogChars) - 1
+			}
+			buf.Set(x, y, fogChars[idx], 249, false)
 		}
 	}
 }
