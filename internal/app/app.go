@@ -366,7 +366,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 				lightDone = true
 				city, lat, lon := r.City, r.Lat, r.Lon
 				go func() {
-					defer func() { recover() }() // a light-pollution lookup must never crash the app
+					defer func() { _ = recover() }() // a light-pollution lookup must never crash the app
 					rpt, err := a.lightClient.Estimate(ctx, city, lat, lon)
 					if err == nil {
 						lightCh <- rpt
@@ -377,7 +377,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 				airDone = true
 				lat, lon := r.Lat, r.Lon
 				go func() {
-					defer func() { recover() }() // an air-quality lookup must never crash the app
+					defer func() { _ = recover() }() // an air-quality lookup must never crash the app
 					rpt, err := a.airClient.Fetch(ctx, lat, lon)
 					if err == nil {
 						airCh <- rpt
@@ -389,7 +389,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 			if !auroraDone && r.Lat != 0 && (r.Lat > 45 || r.Lat < -45) {
 				auroraDone = true
 				go func() {
-					defer func() { recover() }() // an aurora lookup must never crash the app
+					defer func() { _ = recover() }() // an aurora lookup must never crash the app
 					rpt, err := a.auroraClient.Fetch(ctx)
 					if err == nil {
 						auroraCh <- rpt
