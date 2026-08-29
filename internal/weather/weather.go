@@ -53,6 +53,21 @@ func (c Condition) String() string {
 	}
 }
 
+// HourPoint is one future hour in the forecast strip. TempC is Celsius.
+type HourPoint struct {
+	When      time.Time
+	Condition Condition
+	TempC     float64
+}
+
+// DayPoint is one future day in the forecast strip. Temps are Celsius.
+type DayPoint struct {
+	Day       time.Time
+	Condition Condition
+	HighC     float64
+	LowC      float64
+}
+
 // Report is a normalized snapshot of current conditions.
 type Report struct {
 	City       string
@@ -60,13 +75,19 @@ type Report struct {
 	Desc       string // human description, e.g. "light rain"
 	TempKelvin float64
 	Humidity   int
-	WindMS     float64 // wind speed, meters per second
-	WindDir    float64 // wind direction, degrees — where it comes FROM (0=N, 90=E, 180=S, 270=W)
-	Sunrise    int64   // unix UTC seconds, 0 if unknown
-	Sunset     int64   // unix UTC seconds, 0 if unknown
-	Timezone   int64   // seconds east of UTC (from the API)
-	Lat, Lon   float64 // coordinates, for light-pollution lookups
+	WindMS     float64  // wind speed, meters per second
+	WindDir    float64  // wind direction, degrees — where it comes FROM (0=N, 90=E, 180=S, 270=W)
+	UVIndex    float64  // current UV index (0 = not provided)
+	Alerts     []string // active severe-weather alerts (short text)
+	Sunrise    int64    // unix UTC seconds, 0 if unknown
+	Sunset     int64    // unix UTC seconds, 0 if unknown
+	Timezone   int64    // seconds east of UTC (from the API)
+	Lat, Lon   float64  // coordinates, for light-pollution lookups
 	FetchedAt  time.Time
+	// Hourly/Daily hold the forecast shown in the status-panel strip. They
+	// are left empty when the source doesn't provide a forecast.
+	Hourly []HourPoint
+	Daily  []DayPoint
 }
 
 // TempC / TempF convert the stored Kelvin reading on demand, so the UI
@@ -153,6 +174,20 @@ type owmResponse struct {
 	Timezone int64  `json:"timezone"`
 	Name     string `json:"name"`
 	Cod      int    `json:"cod"`
+}
+
+// owmForecastResponse mirrors the fields we need from OpenWeatherMap's
+// /data/2.5/forecast payload (3-hour steps).
+type owmForecastResponse struct {
+	List []struct {
+		Dt   int64 `json:"dt"`
+		Main struct {
+			Temp float64 `json:"temp"`
+		} `json:"main"`
+		Weather []struct {
+			ID int `json:"id"`
+		} `json:"weather"`
+	} `json:"list"`
 }
 
 // Client talks to the OpenWeatherMap API.
@@ -246,7 +281,52 @@ func (c *Client) Fetch(ctx context.Context) (Report, error) {
 		r.Desc = owm.Weather[0].Description
 		r.Condition = classify(owm.Weather[0].ID)
 	}
+	r.Hourly = c.fetchForecast(ctx, city)
 	return r, nil
+}
+
+// fetchForecast is a best-effort second call to OpenWeatherMap's 3-hourly
+// forecast endpoint, feeding the panel strip. Failures are swallowed — the
+// current conditions are still valid without it.
+func (c *Client) fetchForecast(ctx context.Context, city string) []HourPoint {
+	u := "https://api.openweathermap.org/data/2.5/forecast?" + url.Values{
+		"q":     {city},
+		"appid": {c.APIKey},
+		"units": {"metric"}, // Celsius; HourPoint stores Celsius
+	}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil
+	}
+	var f owmForecastResponse
+	if err := json.Unmarshal(body, &f); err != nil {
+		return nil
+	}
+	out := make([]HourPoint, 0, 8)
+	for i, e := range f.List {
+		if i >= 8 {
+			break
+		}
+		code := 800
+		if len(e.Weather) > 0 {
+			code = e.Weather[0].ID
+		}
+		out = append(out, HourPoint{
+			When:      time.Unix(e.Dt, 0),
+			Condition: classify(code),
+			TempC:     e.Main.Temp,
+		})
+	}
+	return out
 }
 
 func (c *Client) geoInfo(ctx context.Context) (geoInfo, error) {
@@ -288,7 +368,8 @@ func classify(id int) Condition {
 // ---------------------------------------------------------------------------
 
 // meteoResponse mirrors the fields we need from Open-Meteo's forecast
-// endpoint (current conditions plus the day's sunrise/sunset).
+// endpoint (current conditions, today's sunrise/sunset, and the next few
+// days of hourly/daily forecast for the panel strip).
 type meteoResponse struct {
 	UTCOffset int64 `json:"utc_offset_seconds"`
 	Current   struct {
@@ -297,11 +378,27 @@ type meteoResponse struct {
 		Code        int     `json:"weather_code"`
 		Wind        float64 `json:"wind_speed_10m"`
 		WindDir     float64 `json:"wind_direction_10m"`
+		UV          float64 `json:"uv_index"`
 	} `json:"current"`
+	Hourly struct {
+		Time        []string  `json:"time"`
+		Code        []int     `json:"weather_code"`
+		Temperature []float64 `json:"temperature_2m"`
+	} `json:"hourly"`
 	Daily struct {
-		Sunrise []string `json:"sunrise"`
-		Sunset  []string `json:"sunset"`
+		Time    []string  `json:"time"`
+		Code    []int     `json:"weather_code"`
+		TempMax []float64 `json:"temperature_2m_max"`
+		TempMin []float64 `json:"temperature_2m_min"`
+		Sunrise []string  `json:"sunrise"`
+		Sunset  []string  `json:"sunset"`
 	} `json:"daily"`
+	Alerts struct {
+		Alert []struct {
+			Event    string `json:"event"`
+			Severity string `json:"severity"`
+		} `json:"alert"`
+	} `json:"alerts"`
 }
 
 // IPClient geolocates the user once and then reads current weather from
@@ -429,8 +526,11 @@ func meteoFetch(ctx context.Context, hc *http.Client, meteoURL string, g *geoInf
 	u := meteoURL + "?" + url.Values{
 		"latitude":        {fmt.Sprintf("%.4f", g.Lat)},
 		"longitude":       {fmt.Sprintf("%.4f", g.Lon)},
-		"current":         {"temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m"},
-		"daily":           {"sunrise,sunset"},
+		"current":         {"temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,uv_index"},
+		"hourly":          {"weather_code,temperature_2m"},
+		"daily":           {"weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset"},
+		"forecast_days":   {"3"},
+		"alerts":          {"true"},
 		"timezone":        {"auto"},
 		"wind_speed_unit": {"ms"},
 	}.Encode()
@@ -476,7 +576,75 @@ func meteoFetch(ctx context.Context, hc *http.Client, meteoURL string, g *geoInf
 	if r.City == "" {
 		r.City = "your location"
 	}
+	r.Hourly = parseMeteoHourly(m.Hourly.Time, m.Hourly.Code, m.Hourly.Temperature)
+	r.Daily = parseMeteoDaily(m.Daily.Time, m.Daily.Code, m.Daily.TempMax, m.Daily.TempMin)
+	r.UVIndex = m.Current.UV
+	for _, a := range m.Alerts.Alert {
+		if len(r.Alerts) >= 3 {
+			break
+		}
+		r.Alerts = append(r.Alerts, a.Event)
+	}
 	return r, nil
+}
+
+// parseMeteoHourly converts Open-Meteo's parallel hourly arrays into a
+// bounded list of HourPoint entries (capped, and skipping stale hours).
+func parseMeteoHourly(times []string, codes []int, temps []float64) []HourPoint {
+	now := time.Now().Add(-15 * time.Minute) // skip the already-passed hour
+	out := make([]HourPoint, 0, 12)
+	for i := range times {
+		if len(out) >= 12 {
+			break
+		}
+		if i >= len(codes) || i >= len(temps) {
+			break
+		}
+		when, err := parseMeteoTime(times[i])
+		if err != nil {
+			continue
+		}
+		if when.Before(now) {
+			continue
+		}
+		out = append(out, HourPoint{
+			When:      when,
+			Condition: classifyWMO(codes[i]),
+			TempC:     temps[i],
+		})
+	}
+	return out
+}
+
+// parseMeteoTime parses an Open-Meteo timestamp, which is minute-precision
+// local time ("2006-01-02T15:04"); seconds are rare but handled too.
+func parseMeteoTime(s string) (time.Time, error) {
+	if t, err := time.Parse("2006-01-02T15:04", s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
+}
+
+// parseMeteoDaily converts Open-Meteo's parallel daily arrays into
+// DayPoint entries.
+func parseMeteoDaily(times []string, codes []int, max, min []float64) []DayPoint {
+	out := make([]DayPoint, 0, 3)
+	for i := range times {
+		if i >= len(codes) || i >= len(max) || i >= len(min) {
+			break
+		}
+		d, err := time.Parse("2006-01-02", times[i])
+		if err != nil {
+			continue
+		}
+		out = append(out, DayPoint{
+			Day:       d,
+			Condition: classifyWMO(codes[i]),
+			HighC:     max[i],
+			LowC:      min[i],
+		})
+	}
+	return out
 }
 
 // classifyWMO buckets an Open-Meteo WMO weather code into our condition set.
