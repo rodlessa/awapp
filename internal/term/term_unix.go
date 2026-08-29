@@ -26,7 +26,7 @@ func Open() (*Term, error) {
 	fd := int(os.Stdin.Fd())
 
 	var orig syscall.Termios
-	if err := ioctl(fd, syscall.TCGETS, uintptr(unsafe.Pointer(&orig))); err != nil {
+	if err := ioctl(fd, TCGETS, uintptr(unsafe.Pointer(&orig))); err != nil {
 		return nil, fmt.Errorf("term: get attrs: %w", err)
 	}
 
@@ -46,7 +46,7 @@ func Open() (*Term, error) {
 	raw.Cc[syscall.VMIN] = 1
 	raw.Cc[syscall.VTIME] = 0
 
-	if err := ioctl(fd, syscall.TCSETS, uintptr(unsafe.Pointer(&raw))); err != nil {
+	if err := ioctl(fd, TCSETS, uintptr(unsafe.Pointer(&raw))); err != nil {
 		return nil, fmt.Errorf("term: set raw: %w", err)
 	}
 
@@ -64,13 +64,13 @@ func Open() (*Term, error) {
 // is used to decide whether an interactive prompt is possible.
 func IsTerminal(fd int) bool {
 	var t syscall.Termios
-	return ioctl(fd, syscall.TCGETS, uintptr(unsafe.Pointer(&t))) == nil
+	return ioctl(fd, TCGETS, uintptr(unsafe.Pointer(&t))) == nil
 }
 
 // Restore returns the terminal to its original (cooked) mode.
 func (t *Term) Restore() {
 	signal.Stop(t.resizeCh)
-	_ = ioctl(t.fd, syscall.TCSETS, uintptr(unsafe.Pointer(&t.orig)))
+	_ = ioctl(t.fd, TCSETS, uintptr(unsafe.Pointer(&t.orig)))
 }
 
 // Size returns the current terminal dimensions in character cells.

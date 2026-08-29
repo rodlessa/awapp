@@ -1,13 +1,16 @@
 # awapp
 
-A full-screen terminal weather visualizer for Linux. It renders the
-current condition as an animation: rain, drifting clouds, or a
-creative clear-sky scene. On a clear day the **Sun rises from the
-bottom of the terminal, arcs across the screen, and sets** — its
-position follows the real sunrise/sunset times for your location; by
-night a **starfield** whose density reflects the **local light
-pollution** sits under a **braille-textured Moon** that likewise
-rises and arcs across the night sky. Both bodies are drawn in a
+A full-screen terminal weather visualizer for Linux, macOS and Windows.
+It renders the current condition as an animation: rain, drifting
+clouds, or a creative clear-sky scene. On a clear day the **Sun rises
+from the bottom of the terminal, arcs across the screen, and sets** —
+its position follows the real sunrise/sunset times for your location;
+by night the **real sky** — the brightest stars placed from your
+location and the local sidereal time (no network) — sits under a
+**braille-textured Moon** that likewise rises and arcs across the night
+sky, with a city **skyline** scaled by light pollution and, when the
+latitude and geomagnetic data line up, an **aurora** band and
+meteor-showers on their peak dates. Both bodies are drawn in a
 **braille dot-pattern style** — the Sun is a dense `⣿`-centred,
 sparse-edged braille disc with rays, the Moon a hand-drawn braille
 sprite lit by its real phase. The Sun and Moon default to **15%
@@ -18,7 +21,9 @@ clouds — so heavy weather actually looks heavy.
 
 **No API key is required**: run it and it asks whether to use your **IP
 location** (ipinfo + Open-Meteo, zero registration); an OpenWeatherMap
-key is an optional, more accurate alternative. It runs in **plain
+key is an optional, more accurate alternative. The weather source is
+pluggable via `-provider`: `openweather` (key), `open-meteo` (keyless),
+`weatherapi`, or `tomorrowio` (keys). It runs in **plain
 monochrome by default** (no color codes) — press `c` or pass `-color`
 for 256-color output. If no weather source can be reached, it drops
 into a manual picker and keeps retrying in the background.
@@ -92,12 +97,14 @@ The config file lives at `~/.config/awapp/config.json` (or
 {
   "api_key": "your_openweathermap_key",
   "city": "Fortaleza,BR",
+  "provider": "auto",
   "use_ip": false,
   "units": "c",
   "color": false,
   "stars": "light",
   "interval": "5m",
   "moon": "auto",
+  "theme": "default",
   "light_key": "",
   "eclipse": false,
   "solar_eclipse": false,
@@ -105,24 +112,32 @@ The config file lives at `~/.config/awapp/config.json` (or
 }
 ```
 
-Recognized keys: `api_key`, `city`, `use_ip`, `units` (`c`/`f`),
-`color`, `stars`, `interval` (duration), `fps`, `moon`, `phase`,
-`light_key`, `eclipse`, `eclipse_duration`, `solar_eclipse`,
-`solar_eclipse_duration`, `size`, `season`, `leaves`.
+Recognized keys: `api_key`, `city`, `provider`, `use_ip`, `units`
+(`c`/`f`), `color`, `stars`, `interval` (duration), `fps`, `moon`,
+`phase`, `light_key`, `eclipse`, `eclipse_duration`,
+`solar_eclipse`, `solar_eclipse_duration`, `size`, `season`,
+`leaves`, `theme`. Unknown keys or out-of-range values are flagged on
+startup instead of being silently ignored. Run `awapp -list-config` to
+see every resolved setting and which source (flag/env/file/default) it
+came from; `-save-config` writes the last-used `color`/`units`/`stars`
+toggles back to the config file on quit.
 
 ### Flags
 
 | Flag                      | Default | Description                                             |
 |---------------------------|---------|----------------------------------------------------------|
 | `-config`                 | (auto)  | Path to a config.json file (see Configuration)          |
-| `-apikey`                 | (env)   | OpenWeatherMap API key                                   |
+| `-apikey`                 | (env)   | API key for the selected provider                       |
 | `-city`                   | (env)   | City query (works keyless via Open-Meteo; optional if geolocating) |
+| `-provider`               | `auto`  | Weather source: `auto`, `openweather`, `open-meteo`, `weatherapi`, `tomorrowio` |
 | `-use-ip`                 | off     | Use IP-location weather (no API key) without asking     |
+| `-no-ip-prompt`           | off     | Skip the interactive IP prompt entirely (scripted use) |
 | `-interval`               | `5m`    | How often to poll the weather API                        |
 | `-fps`                    | `15`    | Animation frame rate                                     |
 | `-f`                      | off     | Start in Fahrenheit (toggle anytime with `u`)            |
 | `-color`                  | off     | Enable 256-color output (default: monochrome, toggle `c`) |
 | `-stars`                  | `light` | Star field: `light` (per pollution), `full`, `off` (toggle `t`) |
+| `-theme`                  | `default`| Clear-sky color palette: `default`, `sunset`, `ocean`, `forest` |
 | `-light-key`              | (env)   | Optional lightpollutionmap.info key for exact radiance  |
 | `-moon`                   | `auto`  | Moon visibility: `auto` (phase decides), `on`, `off`    |
 | `-eclipse`                | off     | Start a simulated **lunar** eclipse (toggle `e`)        |
@@ -133,6 +148,9 @@ Recognized keys: `api_key`, `city`, `use_ip`, `units` (`c`/`f`),
 | `-size`                   | `15`    | Sun/Moon diameter as % of terminal width (`4`..`60`)      |
 | `-season`                 | `auto`  | Leaf season: `auto` (date + hemisphere), `spring`, `summer`, `fall`, `winter` |
 | `-leaves`                 | on      | Enable the seasonal leaf/snow layer (toggle anytime with `l`)    |
+| `-save-config`            | off     | Write last-used `color`/`units`/`stars` back to config on quit |
+| `-list-config`            | off     | Print the resolved config (with its source) and exit    |
+| `-version`                | off     | Print the version and exit                               |
 
 Env var fallbacks: `OPENWEATHERMAP_API_KEY` / `OPENWEATHER_API_KEY`,
 `OPENWEATHERMAP_CITY` / `OPENWEATHER_CITY`,
@@ -159,9 +177,12 @@ Env var fallbacks: `OPENWEATHERMAP_API_KEY` / `OPENWEATHER_API_KEY`,
 
 The status panel shows whether you're looking at **live** data
 (`[live]`) or a **manual** offline pick (`[offline]`), an explicit
-`units: C/F` line, the **wind** (e.g. `wind 4.5 m/s`), and the current
+`units: C/F` line, the **wind** (e.g. `wind 4.5 m/s`), the current
 Moon/Sun/star state on a clear sky, e.g. `Moon: waxing gibbous - 72%
-lit` or `Stars: Bortle 7 (city, pop 1702139)`.
+lit` or `Stars: Bortle 7 (city, pop 1702139)`, plus a **forecast
+strip** (`next:` hours and `days:` high/low), **UV** and **air quality**
+(`Air: Moderate (AQI 67)`), and any active **severe-weather alerts**
+(`⚠ ...`).
 
 ## Clouds & wind
 
@@ -202,13 +223,17 @@ to **on** — press `l` to toggle them off/on.
 
 ## Light pollution & stars
 
-On a clear night the star field tries to reflect how many stars you'd
-actually be able to see at your location:
+On a clear night the stars are **real positions**: each bright star in
+an embedded catalog is placed from the observer's latitude/longitude
+and the local sidereal time, so the sky actually rotates through the
+night and shows the constellations overhead. Light pollution decides
+how many of them survive:
 
 - OpenWeatherMap's report includes your coordinates, so the app looks
   up the local light pollution once per run and converts it to a
   **Bortle class** (1 = pristine dark sky .. 9 = inner city). Star
-  density then scales with that class.
+  density then scales with that class, and the **city skyline** at the
+  bottom of the night scene grows taller with the population.
 - **Exact**: if you set a free `lightpollutionmap.info` API key
   (`-light-key` or `LIGHT_POLLUTION_MAP_API_KEY`), it reads the real
   VIIRS night-lights radiance at your coordinates.
@@ -217,6 +242,19 @@ actually be able to see at your location:
   correlates strongly with artificial light at night.
 - Press `t` to cycle the star field: `light` (the real simulation),
   `off` (hide them), or `full` (an idealized all-star sky).
+- When NOAA's free Kp index and your latitude make it likely, a green
+  **aurora** band drifts near the top; on known meteor-shower peak
+  dates you may also catch a shooting star.
+
+## Forecast, air quality & alerts
+
+When the source provides it, the status panel shows an **hourly
+forecast strip** (e.g. `next: 20h☁27° 21h☂26° ...`) and the next few
+**days** (`days: Fri☂31/26 Sat☁30/25 ...`), plus the current **UV
+index**, the keyless **US AQI** (from Open-Meteo's air-quality API),
+and any active **severe-weather alerts** as `⚠` lines. Thunderstorms
+flash more often (and with a visible bolt) when heavy, and after a
+spell of rain a **rainbow** can briefly arc across the sky.
 
 ## The Moon, the Sun & eclipses
 

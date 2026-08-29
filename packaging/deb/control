@@ -1,0 +1,12 @@
+Package: awapp
+Version: 1.0.5
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: rodlessa <rodlessa@users.noreply.github.com>
+Depends: libc6 (>= 2.17)
+Description: Dependency-free terminal weather visualizer
+ A terminal weather visualizer that renders current conditions as a
+ full-screen ANSI animation: sun/moon arcs, real star positions, seasonal
+ leaves, rain, clouds and more. Keyless Open-Meteo by default; optional
+ OpenWeatherMap key.

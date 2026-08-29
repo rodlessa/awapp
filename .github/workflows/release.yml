@@ -23,6 +23,11 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
 
   build:
     name: Build ${{ matrix.name }}
@@ -34,6 +39,10 @@ jobs:
           - name: linux
             os: ubuntu-latest
             artifact: awapp-linux
+            bin: awapp
+          - name: macos
+            os: macos-latest
+            artifact: awapp-macos
             bin: awapp
           - name: windows
             os: windows-latest
@@ -92,12 +101,13 @@ jobs:
         run: |
           mkdir -p out
           cp dist/awapp-linux/awapp out/awapp-linux
+          cp dist/awapp-macos/awapp out/awapp-macos
           cp dist/awapp-windows/awapp.exe out/awapp-windows.exe
           tar -czf out/awapp-linux.tar.gz -C dist/awapp-linux awapp
       - name: Checksums
         run: |
           cd out
-          sha256sum awapp-linux awapp-linux.tar.gz awapp-windows.exe > SHA256SUMS
+          sha256sum awapp-linux awapp-linux.tar.gz awapp-macos awapp-windows.exe > SHA256SUMS
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
@@ -107,6 +117,7 @@ jobs:
             Auto-built from `${{ github.sha }}` on `${{ github.ref_name }}`.
 
             - **awapp-linux** — Linux x86-64 (also as `.tar.gz`)
+            - **awapp-macos** — macOS (arm64/universal when built on arm64 runner)
             - **awapp-windows.exe** — Windows x86-64 console binary
 
             Verify downloads against `SHA256SUMS`.
@@ -116,6 +127,7 @@ jobs:
           files: |
             out/awapp-linux
             out/awapp-linux.tar.gz
+            out/awapp-macos
             out/awapp-windows.exe
             out/SHA256SUMS
           fail_on_unmatched_files: false

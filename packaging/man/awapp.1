@@ -1,0 +1,138 @@
+.TH AWAPP 1 "August 2026" "awapp 1.0.5" "User Commands"
+.SH NAME
+awapp \- dependency-free terminal weather visualizer
+.SH SYNOPSIS
+.B awapp
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B awapp
+polls a weather source and renders the current condition as a
+full-screen ANSI animation: sun/moon arcs, real star positions (from your
+location and the local sidereal time), seasonal leaves/snow, rain, clouds
+and more. It needs no API key by default (Open-Meteo + IP geolocation);
+an OpenWeatherMap key is optional for a named-city source.
+.SH OPTIONS
+.TP
+.BR \-\-apikey " KEY"
+OpenWeatherMap API key (or config file / OPENWEATHERMAP_API_KEY env).
+.TP
+.BR \-\-city " CITY"
+City to fetch, e.g. "Fortaleza,BR"; no API key needed.
+.TP
+.BR \-\-use\-ip
+Use IP-location weather (ipinfo + Open-Meteo) instead of an API key.
+.TP
+.BR \-\-no\-ip\-prompt
+Skip the interactive IP-location prompt (for scripted/systemd use).
+.TP
+.BR \-\-interval " DURATION"
+How often to poll the weather API (default 5m).
+.TP
+.BR \-\-fps " N"
+Animation frame rate (default 15).
+.TP
+.BR \-f
+Start with Fahrenheit display.
+.TP
+.BR \-\-color
+Enable 256-color output (default: monochrome).
+.TP
+.BR \-\-stars " MODE"
+Star field: light, full, off.
+.TP
+.BR \-\-light\-key " KEY"
+lightpollutionmap.info key for exact light-pollution readings.
+.TP
+.BR \-\-moon " MODE"
+Moon visibility: auto, on, off.
+.TP
+.BR \-\-phase " 0..1"
+Override the moon phase (default: compute from date).
+.TP
+.BR \-\-eclipse
+Start a simulated lunar eclipse.
+.TP
+.BR \-\-eclipse\-duration " DURATION"
+Length of a simulated lunar eclipse.
+.TP
+.BR \-\-solar\-eclipse
+Start a simulated solar eclipse.
+.TP
+.BR \-\-solar\-eclipse\-duration " DURATION"
+Length of a simulated solar eclipse.
+.TP
+.BR \-\-size " PCT"
+Sun/Moon diameter as % of terminal width (4..60, default 15).
+.TP
+.BR \-\-season " SEASON"
+Leaf season: auto, spring, summer, fall, winter.
+.TP
+.BR \-\-leaves
+Enable the seasonal leaf/snow layer (default on).
+.TP
+.BR \-\-save\-config
+On quit, write the last-used color/units/stars toggles back to the
+config file.
+.TP
+.BR \-\-list\-config
+Print the resolved configuration (and each value's source) and exit.
+.TP
+.BR \-\-config " PATH"
+Path to a config.json (default: ~/.config/awapp/config.json).
+.TP
+.BR \-\-version
+Print the version and exit.
+.SH KEYBINDINGS
+.TP
+.B s
+Show/hide the status panel.
+.TP
+.B u
+Toggle C / F.
+.TP
+.B c
+Toggle color.
+.TP
+.B t
+Cycle stars: light-pollution sim, hidden, full.
+.TP
+.B o
+Toggle clouds.
+.TP
+.B l
+Toggle the seasonal leaf/snow layer.
+.TP
+.B m
+Cycle moon: auto, on, off.
+.TP
+.B e / x
+Toggle a simulated lunar / solar eclipse.
+.TP
+.BR + / \-
+Resize the Sun/Moon.
+.TP
+.BR 1 \- 5
+Offline: pick clear / clouds / rain / snow / thunderstorm manually.
+.TP
+.B q
+Quit.
+.SH CONFIG
+Configuration precedence: command-line flags > environment variables >
+config file (~/.config/awapp/config.json) > defaults. Run
+.B awapp \-\-list\-config
+to see which source each setting came from. The config file may hold a
+plaintext API key, so keep it readable only by you (chmod 600).
+.SH ENVIRONMENT
+.TP
+.B OPENWEATHERMAP_API_KEY / OPENWEATHER_API_KEY
+API key fallback.
+.TP
+.B OPENWEATHERMAP_CITY / OPENWEATHER_CITY
+City fallback.
+.TP
+.B LIGHT_POLLUTION_MAP_API_KEY
+Light-pollution key fallback.
+.SH EXIT STATUS
+0 on success, 1 on error (e.g. no usable weather source).
+.SH AUTHOR
+rodlessa (https://github.com/rodlessa/awapp)
