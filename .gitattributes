@@ -1,0 +1,4 @@
+# Keep line endings stable everywhere: LF in the repo, LF on checkout.
+* text=auto eol=lf
+# Golden snapshots are byte-exact — never let git touch them.
+*.golden binary

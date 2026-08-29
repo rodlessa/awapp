@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,12 @@ func assertGolden(t *testing.T, name, got string) {
 	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("missing golden file %s (run with -update to create): %v", path, err)
+	}
+	// Normalize CRLF: some checkouts (e.g. git autocrlf on Windows) can
+	// turn the committed LF endings into CRLF, which must not break the
+	// byte comparison.
+	if string(want) != got && strings.ReplaceAll(string(want), "\r\n", "\n") == got {
+		return
 	}
 	if string(want) != got {
 		t.Errorf("%s: rendered frame changed (run with -update to accept)", name)
