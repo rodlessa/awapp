@@ -6,10 +6,12 @@ package overlay
 
 import (
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
 	"awapp/internal/render"
+	"awapp/internal/weather"
 )
 
 type Info struct {
@@ -29,6 +31,16 @@ type Info struct {
 	Err        string // optional: why the last weather fetch failed (offline picker)
 	Season     string // optional: current season ("summer", "winter", ...)
 	LeavesOn   bool   // whether the seasonal leaf/snow layer is enabled
+	// ForecastHourly/Daily feed the panel forecast strip (empty = none).
+	ForecastHourly []weather.HourPoint
+	ForecastDaily  []weather.DayPoint
+	// AQI is the US Air Quality Index (0 = not available); AQILabel its
+	// EPA category. UV is the current UV index. Alerts are active
+	// severe-weather alert names.
+	AQI      int
+	AQILabel string
+	UV       float64
+	Alerts   []string
 }
 
 // PanelHeight returns the number of rows the status panel would occupy
@@ -95,8 +107,75 @@ func panelLines(info Info) []string {
 		}
 		lines = append(lines, " Season: "+info.Season+"  leaves "+state+" (l)")
 	}
+	if len(info.ForecastHourly) > 0 {
+		var sb strings.Builder
+		sb.WriteString(" next:")
+		for i, h := range info.ForecastHourly {
+			if i >= 6 {
+				break
+			}
+			sb.WriteString(" ")
+			sb.WriteString(h.When.Format("15h"))
+			sb.WriteString(condGlyph(h.Condition))
+			sb.WriteString(tempStr(h.TempC, info.Fahrenheit))
+		}
+		lines = append(lines, sb.String())
+	}
+	if len(info.ForecastDaily) > 0 {
+		var sb strings.Builder
+		sb.WriteString(" days:")
+		for i, d := range info.ForecastDaily {
+			if i >= 3 {
+				break
+			}
+			sb.WriteString(" ")
+			sb.WriteString(d.Day.Format("Mon"))
+			sb.WriteString(condGlyph(d.Condition))
+			sb.WriteString(tempStr(d.HighC, info.Fahrenheit))
+			sb.WriteString("/")
+			sb.WriteString(tempStr(d.LowC, info.Fahrenheit))
+		}
+		lines = append(lines, sb.String())
+	}
+	if info.UV > 0 {
+		lines = append(lines, fmt.Sprintf(" UV: %.0f", info.UV))
+	}
+	if info.AQI > 0 {
+		lines = append(lines, fmt.Sprintf(" Air: %s (AQI %d)", info.AQILabel, info.AQI))
+	}
+	for _, a := range info.Alerts {
+		lines = append(lines, " ⚠ "+a)
+	}
 	lines = append(lines, " [u] unit  [c] color  [t] stars  [o] clouds  [l] leaves  [+]/[-] size  [m] moon  [e] lunar  [x] solar  [s] hide  [q] quit")
 	return lines
+}
+
+// condGlyph maps a condition to a single glyph for the forecast strip.
+func condGlyph(c weather.Condition) string {
+	switch c {
+	case weather.Clear:
+		return "☀"
+	case weather.Clouds:
+		return "☁"
+	case weather.Rain:
+		return "☂"
+	case weather.Snow:
+		return "❄"
+	case weather.Thunderstorm:
+		return "⛈"
+	case weather.Mist:
+		return "◌"
+	default:
+		return "·"
+	}
+}
+
+// tempStr formats a Celsius temperature, converting to F when requested.
+func tempStr(c float64, fahrenheit bool) string {
+	if fahrenheit {
+		c = c*9/5 + 32
+	}
+	return fmt.Sprintf("%.0f°", c)
 }
 
 // Draw paints a bordered panel in the top-left corner. w/h are the

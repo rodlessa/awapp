@@ -1,9 +1,11 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -130,3 +132,62 @@ func TestConfigFileTooOpen(t *testing.T) {
 func boolPtr(b bool) *bool        { return &b }
 func intPtr(i int) *int           { return &i }
 func floatPtr(f float64) *float64 { return &f }
+
+func captureStderr(fn func()) string {
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		return ""
+	}
+	os.Stderr = w
+	fn()
+	_ = w.Close()
+	os.Stderr = old
+	var buf strings.Builder
+	_, _ = io.Copy(&buf, r)
+	return buf.String()
+}
+
+func TestLoadFileConfigWarnsOnUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(p, []byte(`{"api_key":"k","cityy":"oops"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stderr := captureStderr(func() {
+		fc := loadFileConfig(p)
+		if fc.APIKey == nil || *fc.APIKey != "k" {
+			t.Errorf("known key should still parse: %+v", fc)
+		}
+	})
+	if !strings.Contains(stderr, "cityy") {
+		t.Errorf("expected an unknown-key warning mentioning cityy, got stderr=%q", stderr)
+	}
+}
+
+func TestWarnConfigFlagsBadValues(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(p, []byte(`{"size":99,"stars":"banana","moon":"sometimes"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fc := loadFileConfig(p)
+	stderr := captureStderr(func() { warnConfig(fc, p) })
+	for _, want := range []string{"size", "stars", "moon"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("expected a warning mentioning %q, got stderr=%q", want, stderr)
+		}
+	}
+}
+
+func TestWarnConfigSilentWhenValid(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.json")
+	if err := os.WriteFile(p, []byte(`{"size":15,"stars":"light","moon":"auto"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fc := loadFileConfig(p)
+	if stderr := captureStderr(func() { warnConfig(fc, p) }); stderr != "" {
+		t.Errorf("valid config should warn nothing, got stderr=%q", stderr)
+	}
+}

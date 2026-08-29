@@ -12,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"awapp/internal/air"
 	"awapp/internal/anim"
+	"awapp/internal/aurora"
 	"awapp/internal/light"
 	"awapp/internal/overlay"
 	"awapp/internal/render"
@@ -21,8 +23,12 @@ import (
 )
 
 type Config struct {
-	City         string
-	APIKey       string
+	City   string
+	APIKey string
+	// Provider selects the weather source: "auto" (default — OWM when a
+	// key is set, else Open-Meteo), "openweather", "open-meteo",
+	// "weatherapi", or "tomorrowio".
+	Provider     string
 	Interval     time.Duration
 	FPS          int
 	StartCelsius bool
@@ -40,6 +46,13 @@ type Config struct {
 	// UseIP uses the keyless IP-location weather source (ipinfo + Open-Meteo)
 	// instead of an API key. When no API key is set, the app asks first.
 	UseIP bool
+	// NoIPPrompt skips the interactive "use IP-based weather?" prompt. With
+	// no API key and no city this means starting in the offline picker —
+	// handy for scripted/systemd launches that must not block on input.
+	NoIPPrompt bool
+	// OnQuit, when set, receives the final runtime toggles on a normal
+	// exit (used by -save-config to persist them back to config.json).
+	OnQuit func(FinalSettings)
 	// MoonMode controls Moon visibility: "auto" (the phase decides, and a
 	// new moon hides itself), "on", or "off". MoonPhase pins the phase to
 	// a fixed value (0..1) for testing, -1 computes it from the date.
@@ -63,6 +76,17 @@ type Config struct {
 	// Leaves enables the seasonal leaf/snow layer (default on; toggle
 	// anytime with 'l').
 	Leaves bool
+	// Theme selects the clear-sky color palette: default, sunset, ocean,
+	// forest.
+	Theme string
+}
+
+// FinalSettings captures the runtime toggles at exit, so the caller can
+// persist them back to the config file.
+type FinalSettings struct {
+	Color      bool
+	Fahrenheit bool
+	Stars      string
 }
 
 type mode int
@@ -74,6 +98,45 @@ const (
 	modeManual              // rendering a user-picked condition, still retrying in background
 )
 
+// appEvent is the kind of state-machine input that drives the app's mode.
+type appEvent int
+
+const (
+	evReport appEvent = iota // a fresh weather report arrived
+	evError                  // a fetch failed
+	evManual                 // the user picked a condition manually (digit key)
+)
+
+// nextMode computes the next mode for a given event. It is a pure function
+// (no clock, no terminal), so the whole state machine — loading → live /
+// offline / manual — can be unit-tested directly.
+func nextMode(cur mode, ev appEvent) mode {
+	switch cur {
+	case modeLoading:
+		switch ev {
+		case evReport:
+			return modeLive
+		case evError:
+			return modeOffline
+		case evManual:
+			return modeManual
+		}
+	case modeLive, modeOffline, modeManual:
+		switch ev {
+		case evReport:
+			return modeLive
+		case evError:
+			return cur // keep the last good frame (or the manual pick)
+		case evManual:
+			if cur == modeLive {
+				return cur // live reports ignore manual picks
+			}
+			return modeManual
+		}
+	}
+	return cur
+}
+
 const defaultStarFactor = 0.5 // used until light-pollution data arrives
 
 type App struct {
@@ -81,8 +144,10 @@ type App struct {
 	t   *term.Term
 	buf *render.Buffer
 
-	poller      *weather.Poller
-	lightClient *light.Client
+	poller       *weather.Poller
+	lightClient  *light.Client
+	airClient    *air.Client
+	auroraClient *aurora.Client
 
 	mode       mode
 	report     weather.Report
@@ -96,9 +161,13 @@ type App struct {
 	frame      int
 
 	// Light pollution / stars.
-	stars    string // "light" | "full" | "off"
-	lightRpt light.Report
-	hasLight bool
+	stars     string // "light" | "full" | "off"
+	lightRpt  light.Report
+	hasLight  bool
+	airRpt    air.Report
+	hasAir    bool
+	auroraRpt aurora.Report
+	hasAurora bool
 
 	// Sun/Moon size, as a % of terminal width.
 	sizePct float64
@@ -112,6 +181,8 @@ type App struct {
 	// Season override from -season / config ("auto" computes from date +
 	// hemisphere); empty/auto means compute.
 	seasonOverride string
+	// theme is the resolved clear-sky color palette (-theme).
+	theme anim.Palette
 
 	// Leaves is the ambient season-driven drifting-leaf layer.
 	leaves *anim.Leaves
@@ -130,6 +201,14 @@ type animatorIface interface {
 	SetTopMargin(rows int)
 	Tick()
 	Draw(buf *render.Buffer)
+}
+
+// finalize reports the final runtime toggles back to the caller on a
+// normal exit (for -save-config).
+func (a *App) finalize() {
+	if a.cfg.OnQuit != nil {
+		a.cfg.OnQuit(FinalSettings{Color: a.color, Fahrenheit: a.fahrenheit, Stars: a.stars})
+	}
 }
 
 func Run(ctx context.Context, cfg Config) (err error) {
@@ -178,6 +257,8 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		buf:            render.NewBuffer(size.Cols, size.Rows),
 		poller:         poller,
 		lightClient:    light.NewClient(cfg.LightKey),
+		airClient:      air.NewClient(),
+		auroraClient:   aurora.NewClient(),
 		mode:           modeLoading,
 		fahrenheit:     !cfg.StartCelsius,
 		color:          cfg.Color,
@@ -186,6 +267,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 		sizePct:        cfg.SizePct,
 		cloudsOn:       true,
 		seasonOverride: cfg.Season,
+		theme:          paletteFor(cfg.Theme),
 		leaves:         anim.NewLeaves(),
 		leavesOn:       cfg.Leaves,
 	}
@@ -242,17 +324,24 @@ func Run(ctx context.Context, cfg Config) (err error) {
 
 	lightCh := make(chan light.Report, 1)
 	lightDone := false
+	airCh := make(chan air.Report, 1)
+	airDone := false
+	auroraCh := make(chan aurora.Report, 1)
+	auroraDone := false
 
 	for {
 		select {
 		case <-ctx.Done():
+			a.finalize()
 			return nil
 
 		case b, ok := <-keys:
 			if !ok {
+				a.finalize()
 				return nil
 			}
 			if quit := a.handleKey(b); quit {
+				a.finalize()
 				return nil
 			}
 
@@ -268,7 +357,7 @@ func Run(ctx context.Context, cfg Config) (err error) {
 			a.report = r
 			a.hasReport = true
 			a.lastErr = nil
-			a.mode = modeLive
+			a.mode = nextMode(a.mode, evReport)
 			a.setAnimator(animatorFor(r, a.moonOpts, a.cloudsOn))
 			a.season = a.resolveSeason(r.Lat)
 			a.leaves.SetSeason(a.season)
@@ -284,10 +373,33 @@ func Run(ctx context.Context, cfg Config) (err error) {
 					}
 				}()
 			}
+			if !airDone && r.Lat != 0 && r.Lon != 0 {
+				airDone = true
+				lat, lon := r.Lat, r.Lon
+				go func() {
+					defer func() { recover() }() // an air-quality lookup must never crash the app
+					rpt, err := a.airClient.Fetch(ctx, lat, lon)
+					if err == nil {
+						airCh <- rpt
+					}
+				}()
+			}
+			// Aurora only matters at high latitudes; skip the extra request
+			// otherwise.
+			if !auroraDone && r.Lat != 0 && (r.Lat > 45 || r.Lat < -45) {
+				auroraDone = true
+				go func() {
+					defer func() { recover() }() // an aurora lookup must never crash the app
+					rpt, err := a.auroraClient.Fetch(ctx)
+					if err == nil {
+						auroraCh <- rpt
+					}
+				}()
+			}
 
 		case err := <-poller.Errors:
 			a.lastErr = err
-			if a.mode == modeLoading {
+			if nextMode(a.mode, evError) == modeOffline {
 				a.enterOffline(err)
 			}
 			// In modeLive/modeManual we just keep the last good frame
@@ -297,6 +409,17 @@ func Run(ctx context.Context, cfg Config) (err error) {
 			a.lightRpt = lr
 			a.hasLight = true
 			a.applyStars()
+
+		case ar := <-airCh:
+			a.airRpt = ar
+			a.hasAir = true
+
+		case aur := <-auroraCh:
+			a.auroraRpt = aur
+			a.hasAurora = true
+			if s, ok := a.animator.(*anim.Sun); ok {
+				s.SetAurora(aurora.Likelihood(a.report.Lat, aur.Kp))
+			}
 
 		case <-ticker.C:
 			a.frame++
@@ -330,6 +453,23 @@ func Run(ctx context.Context, cfg Config) (err error) {
 // asks whether to use the keyless IP-location source. It returns the
 // fetcher and whether the app should start in offline (picker) mode.
 func resolveFetcher(ctx context.Context, cfg Config) (weather.Fetcher, bool) {
+	switch cfg.Provider {
+	case "openweather":
+		return weather.NewClient(cfg.APIKey, cfg.City), false
+	case "open-meteo":
+		if cfg.City != "" {
+			fmt.Fprintln(os.Stderr, "awapp: using keyless city weather for "+cfg.City+" (Open-Meteo)")
+			return weather.NewCityClient(cfg.City), false
+		}
+		fmt.Fprintln(os.Stderr, "awapp: using IP-location weather (Open-Meteo)")
+		return weather.NewIPClient(), false
+	case "weatherapi":
+		return weather.NewWeatherAPIClient(cfg.APIKey, cfg.City), false
+	case "tomorrowio":
+		return weather.NewTomorrowIOClient(cfg.APIKey, cfg.City), false
+	}
+	// Default ("auto"): an API key means OpenWeatherMap; otherwise fall
+	// back to keyless Open-Meteo (city or IP).
 	if cfg.APIKey != "" {
 		return weather.NewClient(cfg.APIKey, cfg.City), false
 	}
@@ -337,7 +477,7 @@ func resolveFetcher(ctx context.Context, cfg Config) (weather.Fetcher, bool) {
 		fmt.Fprintln(os.Stderr, "awapp: using keyless city weather for "+cfg.City+" (no API key)")
 		return weather.NewCityClient(cfg.City), false
 	}
-	if cfg.UseIP || askUseIP(ctx) {
+	if cfg.UseIP || (!cfg.NoIPPrompt && askUseIP(ctx)) {
 		fmt.Fprintln(os.Stderr, "awapp: using IP-location weather (no API key)")
 		return weather.NewIPClient(), false
 	}
@@ -401,6 +541,23 @@ func (a *App) setAnimator(an animatorIface) {
 	a.applySolar()
 	a.applySize()
 	a.applyClouds()
+	if s, ok := an.(*anim.Sun); ok {
+		s.SetPalette(a.theme)
+	}
+}
+
+// paletteFor maps a theme name to its clear-sky palette.
+func paletteFor(theme string) anim.Palette {
+	switch theme {
+	case "sunset":
+		return anim.SunsetPalette
+	case "ocean":
+		return anim.OceanPalette
+	case "forest":
+		return anim.ForestPalette
+	default:
+		return anim.DefaultPalette
+	}
 }
 
 // handleKey processes one input byte and returns true if the app
@@ -442,6 +599,7 @@ func (a *App) handleKey(b byte) bool {
 	case 'l', 'L':
 		a.leavesOn = !a.leavesOn
 		a.leaves.SetOn(a.leavesOn)
+		a.showPanel = true // make the toggle visible, like 'u'
 	case '1':
 		a.pickManual(weather.Clear, "clear sky (manual)")
 	case '2':
@@ -490,6 +648,26 @@ func (a *App) starFactorEffective() float64 {
 func (a *App) applyStars() {
 	if s, ok := a.animator.(*anim.Sun); ok {
 		s.SetStarFactor(a.starFactorEffective())
+		s.SetStarsVisible(a.stars != "off")
+		s.SetSkyline(a.skylineLevel())
+	}
+}
+
+// skylineLevel derives the night-scene city-skyline size from the
+// light-pollution reading (higher Bortle class = bigger city).
+func (a *App) skylineLevel() int {
+	if !a.hasLight {
+		return 0
+	}
+	switch {
+	case a.lightRpt.Bortle >= 8:
+		return 3
+	case a.lightRpt.Bortle >= 6:
+		return 2
+	case a.lightRpt.Bortle >= 4:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -644,7 +822,7 @@ func (a *App) applyMoon() {
 }
 
 func (a *App) pickManual(c weather.Condition, desc string) {
-	if a.mode != modeOffline && a.mode != modeManual && a.mode != modeLoading {
+	if nextMode(a.mode, evManual) != modeManual {
 		return // ignore digit keys while a live report is being shown
 	}
 	a.mode = modeManual
@@ -669,6 +847,14 @@ func (a *App) overlayInfo() overlay.Info {
 	if a.hasReport {
 		info.City = a.report.City
 		info.Desc = a.report.Desc
+		info.ForecastHourly = a.report.Hourly
+		info.ForecastDaily = a.report.Daily
+		info.UV = a.report.UVIndex
+		info.Alerts = a.report.Alerts
+		if a.hasAir {
+			info.AQI = a.airRpt.USAQI
+			info.AQILabel = a.airRpt.Label
+		}
 		if a.mode == modeLive {
 			info.TempC = a.report.TempC()
 			info.TempF = a.report.TempF()
@@ -803,6 +989,7 @@ func animatorFor(r weather.Report, moonOpts anim.MoonOptions, cloudsOn bool) ani
 	case weather.Clear:
 		sun := anim.NewSun(night, moonOpts)
 		sun.SetTimes(anim.SkyTimes{Sunrise: r.Sunrise, Sunset: r.Sunset, Timezone: r.Timezone})
+		sun.SetLocation(r.Lat, r.Lon)
 		return sun
 	case weather.Clouds:
 		c := anim.NewClouds(strings.Contains(strings.ToLower(r.Desc), "overcast"), false, false, r.WindMS, r.WindDir)
